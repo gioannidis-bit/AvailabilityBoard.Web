@@ -1,0 +1,54 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@model AvailabilityBoard.Web.Pages.Approvals.IndexModel
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h6 class="mb-3">Pending approvals</h6>
+
+        @if (!string.IsNullOrWhiteSpace(Model.Message))
+        {
+            <div class="alert alert-info">@Model.Message</div>
+        }
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Εργαζόμενος</th>
+                        <th>Τύπος</th>
+                        <th>Από</th>
+                        <th>Έως</th>
+                        <th>Σημείωση</th>
+                        <th style="width:220px;">Ενέργεια</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Model.Pending)
+                    {
+                        <tr>
+                            <td>@r.EmployeeName</td>
+                            <td>@r.TypeLabel</td>
+                            <td>@r.StartDateTime.ToString("g")   // short date + short time, με culture του browser</td>
+                            <td>@r.EndDateTime.ToString("g")</td>
+                            <td>@(r.Note ?? "-")</td>
+                            <td>
+                                <form method="post" class="d-flex gap-2">
+                                    <input type="hidden" name="RequestId" value="@r.RequestId" />
+                                    <input class="form-control form-control-sm" name="DecisionNote" placeholder="σχόλιο" />
+                                    <button class="btn btn-success btn-sm" name="Action" value="approve" type="submit">Approve</button>
+                                    <button class="btn btn-danger btn-sm" name="Action" value="reject" type="submit">Reject</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (Model.Pending.Count == 0)
+        {
+            <div class="text-muted">Δεν υπάρχουν pending αιτήματα.</div>
+        }
+    </div>
+</div>

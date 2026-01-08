@@ -1,0 +1,114 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@model AvailabilityBoard.Web.Pages.IndexModel
+
+<div class="row g-3">
+    <div class="col-12 col-lg-3">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="mb-3">Φίλτρα</h6>
+
+                <div class="mb-2">
+                    <label class="form-label">Τμήμα</label>
+                    <select id="department" class="form-select">
+                        <option value="">Όλα</option>
+                    </select>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Τύποι</label>
+                    <select id="types" class="form-select" multiple size="6"></select>
+                    <div class="text-muted small mt-1">Ctrl/Shift για multi-select</div>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="myTeamOnly">
+                    <label class="form-check-label" for="myTeamOnly">Μόνο η ομάδα μου</label>
+                </div>
+
+                <a class="btn btn-primary w-100" href="/Requests/My">Νέο αίτημα / Τα αιτήματά μου</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-9">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <div id="calendar"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (async function() {
+          // load departments + types
+          const deptSel = document.getElementById('department');
+          const typesSel = document.getElementById('types');
+          const myTeamOnly = document.getElementById('myTeamOnly');
+
+          const depts = await fetch('/api/departments').then(r => r.json());
+          for (const d of depts) {
+            const o = document.createElement('option');
+            o.value = d.departmentId;
+            o.textContent = d.name;
+            deptSel.appendChild(o);
+          }
+
+          const types = await fetch('/api/types').then(r => r.json());
+          for (const t of types) {
+            const o = document.createElement('option');
+            o.value = t.code;
+            o.textContent = t.label;
+            typesSel.appendChild(o);
+          }
+
+          function selectedTypeCodes() {
+            return Array.from(typesSel.selectedOptions).map(x => x.value).join(',');
+          }
+
+          const calendarEl = document.getElementById('calendar');
+          const calendar = new FullCalendar.Calendar(calendarEl, {
+              locale: navigator.language || 'el',
+            initialView: window.innerWidth < 768 ? 'timeGridDay' : 'timeGridWeek',
+            height: 'auto',
+            firstDay: 1, // Monday
+            nowIndicator: true,
+            headerToolbar: {
+              left: 'prev,next today',
+              center: 'title',
+              right: 'dayGridMonth,timeGridWeek,timeGridDay'
+            },
+            events: async (info, success, failure) => {
+              try {
+                      const qs = new URLSearchParams({
+          start: info.startStr,
+          end: info.endStr,
+          typeCodes: selectedTypeCodes(),
+          myTeamOnly: myTeamOnly.checked ? 'true' : 'false'
+        });
+
+        if (deptSel.value) qs.set('departmentId', deptSel.value);
+
+                const ev = await fetch('/api/events?' + qs.toString()).then(r => r.json());
+                success(ev);
+              } catch (e) {
+                failure(e);
+              }
+            }
+          });
+
+          calendar.render();
+
+          deptSel.addEventListener('change', () => calendar.refetchEvents());
+          typesSel.addEventListener('change', () => calendar.refetchEvents());
+          myTeamOnly.addEventListener('change', () => calendar.refetchEvents());
+
+          window.addEventListener('resize', () => {
+            const v = window.innerWidth < 768 ? 'timeGridDay' : 'timeGridWeek';
+            calendar.changeView(v);
+          });
+        })();
+    </script>
+}

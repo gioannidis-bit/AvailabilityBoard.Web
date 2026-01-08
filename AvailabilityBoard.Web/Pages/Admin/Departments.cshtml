@@ -1,0 +1,45 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "AdminOnly")]
+@model AvailabilityBoard.Web.Pages.Admin.DepartmentsModel
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h5 class="mb-3">Departments & Managers</h5>
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Department</th>
+                        <th>Manager</th>
+                        <th style="width:420px;">Set manager</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in Model.Departments)
+                    {
+                        <tr>
+                            <td>@d.Name</td>
+                            <td>@(Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var n) ? n : "-")</td>
+                            <td>
+                                <form method="post" class="d-flex gap-2">
+                                    <input type="hidden" name="DepartmentId" value="@d.DepartmentId" />
+                                    <select class="form-select form-select-sm" name="ManagerEmployeeId">
+                                        <option value="">-- select --</option>
+                                        @foreach (var e in Model.Employees)
+                                        {
+                                            <option value="@e.EmployeeId">@e.DisplayName</option>
+                                        }
+                                    </select>
+                                    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <a class="btn btn-outline-secondary" href="/Admin">Back</a>
+    </div>
+</div>

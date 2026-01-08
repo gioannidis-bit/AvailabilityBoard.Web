@@ -1,0 +1,90 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@model AvailabilityBoard.Web.Pages.Requests.MyModel
+
+<div class="row g-3">
+    <div class="col-12 col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="mb-3">Νέο αίτημα</h6>
+
+                @if (!string.IsNullOrWhiteSpace(Model.Error))
+                {
+                    <div class="alert alert-danger">@Model.Error</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.Success))
+                {
+                    <div class="alert alert-success">@Model.Success</div>
+                }
+
+                <form method="post">
+                    <div class="mb-2">
+                        <label class="form-label">Τύπος</label>
+                        <select class="form-select" name="TypeCode">
+                            @foreach (var t in Model.Types)
+                            {
+                                <option value="@t.Code">@t.Label</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label">Έναρξη</label>
+                        <input class="form-control" type="datetime-local" name="Start" required />
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label">Λήξη</label>
+                        <input class="form-control" type="datetime-local" name="End" required />
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label">Σημείωση</label>
+                        <input class="form-control" name="Note" maxlength="500" />
+                    </div>
+
+                    <button class="btn btn-primary w-100" type="submit">Υποβολή (Pending)</button>
+                </form>
+
+                <div class="text-muted small mt-2">
+                    * Πάει στον υπεύθυνο (manager) για έγκριση.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="mb-3">Τα αιτήματά μου</h6>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Τύπος</th>
+                                <th>Από</th>
+                                <th>Έως</th>
+                                <th>Status</th>
+                                <th>Approver</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in Model.MyRequests)
+                            {
+                                <tr>
+                                    <td>@r.TypeLabel</td>
+                                    <td>@r.StartDateTime.ToString("g")</td>
+                                    <td>@r.EndDateTime.ToString("g")</td>
+                                    <td>@r.Status</td>
+                                    <td>@(r.ApproverName ?? "-")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>

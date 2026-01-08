@@ -1,0 +1,23 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "AdminOnly")]
+@model AvailabilityBoard.Web.Pages.Admin.IndexModel
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h5 class="mb-3">Admin</h5>
+
+        @if (!string.IsNullOrWhiteSpace(Model.Message))
+        {
+            <div class="alert alert-info">@Model.Message</div>
+        }
+
+        <form method="post">
+            <button class="btn btn-primary" name="Action" value="sync">Sync users from AD</button>
+            <a class="btn btn-outline-secondary" href="/Admin/Departments">Departments & Managers</a>
+        </form>
+
+        <div class="text-muted mt-3 small">
+            * Το sync φέρνει όλους τους enabled χρήστες από AD και τους κάνει upsert στη DB.
+        </div>
+    </div>
+</div>
