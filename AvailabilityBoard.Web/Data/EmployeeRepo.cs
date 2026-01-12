@@ -11,7 +11,7 @@ public sealed class EmployeeRepo
     {
         using var cn = Db.Open(_cs);
         return await cn.QuerySingleOrDefaultAsync<Employee>(
-            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive
+            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
               FROM dbo.Employees WHERE AdGuid=@adGuid",
             new { adGuid });
     }
@@ -20,7 +20,7 @@ public sealed class EmployeeRepo
     {
         using var cn = Db.Open(_cs);
         return await cn.QuerySingleOrDefaultAsync<Employee>(
-            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive
+            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
               FROM dbo.Employees WHERE SamAccountName=@sam",
             new { sam });
     }
@@ -68,7 +68,7 @@ public sealed class EmployeeRepo
     {
         using var cn = Db.Open(_cs);
         var rows = await cn.QueryAsync<Employee>(
-            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive
+            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
               FROM dbo.Employees
               WHERE ManagerEmployeeId=@managerEmployeeId AND IsActive=1
               ORDER BY DisplayName",
@@ -100,6 +100,41 @@ public sealed class EmployeeRepo
             @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
           FROM dbo.Employees WHERE IsActive=1 AND IsApprover=1
           ORDER BY DisplayName");
+        return rows.ToList();
+    }
+
+    public async Task<List<Employee>> ListTop(int top = 200)
+    {
+        using var cn = Db.Open(_cs);
+        var rows = await cn.QueryAsync<Employee>(
+            $@"SELECT TOP (@top) EmployeeId, AdGuid, SamAccountName, DisplayName, Email,
+                  DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
+           FROM dbo.Employees
+           WHERE IsActive=1
+           ORDER BY DisplayName",
+            new { top });
+        return rows.ToList();
+    }
+
+    public async Task<List<Employee>> Search(string q, int top = 50)
+    {
+        q = (q ?? "").Trim();
+        using var cn = Db.Open(_cs);
+
+        if (q.Length == 0)
+            return await ListTop(top);
+
+        // basic LIKE search (γρήγορο MVP). Αν έχεις πολλούς users, βάζουμε full-text μετά.
+        var like = "%" + q.Replace("[", "[[]").Replace("%", "[%]").Replace("_", "[_]") + "%";
+
+        var rows = await cn.QueryAsync<Employee>(
+            @"SELECT TOP (@top) EmployeeId, AdGuid, SamAccountName, DisplayName, Email,
+                 DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
+          FROM dbo.Employees
+          WHERE IsActive=1
+            AND (DisplayName LIKE @like OR SamAccountName LIKE @like OR Email LIKE @like)
+          ORDER BY DisplayName",
+            new { like, top });
         return rows.ToList();
     }
 }

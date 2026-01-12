@@ -91,14 +91,35 @@ app.MapPost("/admin/sync-ad", async (HttpContext ctx, LdapService ldap, Employee
     var isAdmin = (ctx.User.FindFirst("is_admin")?.Value ?? "0") == "1";
     if (!isAdmin) return Results.Forbid();
 
-    int count = 0;
-    foreach (var u in ldap.FetchAllUsers())
+    try
     {
-        await sync.UpsertFromAd(u);
-        count++;
-    }
+        int count = 0;
+        foreach (var u in ldap.FetchAllUsers())
+        {
+            await sync.UpsertFromAd(u);
+            count++;
+        }
 
-    return Results.Ok(new { synced = count });
+        return Results.Ok(new { synced = count });
+    }
+    catch (Exception ex)
+    {
+        // JSON-friendly error for admin calls (keeps the app from crashing)
+        return Results.BadRequest(new { error = ex.Message });
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/employees/search", async (Db db, string? q) =>
+{
+    q ??= "";
+    var rows = await db.Employees.Search(q, top: 20);
+    var result = rows.Select(e => new {
+        id = e.EmployeeId,
+        name = e.DisplayName,
+        sam = e.SamAccountName,
+        email = e.Email
+    });
+    return Results.Ok(result);
 }).RequireAuthorization();
 
 app.MapRazorPages();

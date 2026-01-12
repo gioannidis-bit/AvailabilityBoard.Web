@@ -31,25 +31,32 @@ public class IndexModel : PageModel
     {
         if (Action == "sync")
         {
-            var adminGroups = _cfg.GetSection("Roles:AdminGroups").Get<string[]>() ?? Array.Empty<string>();
-            var approverGroups = _cfg.GetSection("Roles:ApproverGroups").Get<string[]>() ?? Array.Empty<string>();
-
-            bool InGroup(List<string> memberOf, string[] groups) =>
-                groups.Any(g => memberOf.Any(dn => dn.Contains("CN=" + g + ",", StringComparison.OrdinalIgnoreCase)));
-
-            int count = 0;
-            foreach (var u in _ldap.FetchAllUsers())
+            try
             {
-                var empId = await _sync.UpsertFromAd(u);
+                var adminGroups = _cfg.GetSection("Roles:AdminGroups").Get<string[]>() ?? Array.Empty<string>();
+                var approverGroups = _cfg.GetSection("Roles:ApproverGroups").Get<string[]>() ?? Array.Empty<string>();
 
-                var isAdmin = InGroup(u.MemberOf, adminGroups);
-                var isApprover = InGroup(u.MemberOf, approverGroups);
+                bool InGroup(List<string> memberOf, string[] groups) =>
+                    groups.Any(g => memberOf.Any(dn => dn.Contains("CN=" + g + ",", StringComparison.OrdinalIgnoreCase)));
 
-                await _db.Employees.SetRoleFlags(empId, isAdmin, isApprover);
-                count++;
+                int count = 0;
+                foreach (var u in _ldap.FetchAllUsers())
+                {
+                    var empId = await _sync.UpsertFromAd(u);
+
+                    var isAdmin = InGroup(u.MemberOf, adminGroups);
+                    var isApprover = InGroup(u.MemberOf, approverGroups);
+
+                    await _db.Employees.SetRoleFlags(empId, isAdmin, isApprover);
+                    count++;
+                }
+
+                Message = $"Sync OK. Users synced: {count}.";
             }
-
-            Message = $"Sync OK. Users synced: {count}.";
+            catch (Exception ex)
+            {
+                Message = ex.Message;
+            }
         }
 
         return Page();

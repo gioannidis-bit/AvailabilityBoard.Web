@@ -6,6 +6,11 @@
     <div class="card-body">
         <h5 class="mb-3">Departments & Managers</h5>
 
+        @if (!string.IsNullOrWhiteSpace(Model.Message))
+        {
+            <div class="alert alert-info">@Model.Message</div>
+        }
+
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead>
@@ -20,18 +25,22 @@
                     {
                         <tr>
                             <td>@d.Name</td>
-                            <td>@(Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var n) ? n : "-")</td>
-                            <td>
-                                <form method="post" class="d-flex gap-2">
+                            <td>@(Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var mgrName) ? mgrName : "-")</td>
+                            <td style="min-width:420px;">
+                                <form method="post" class="position-relative">
                                     <input type="hidden" name="DepartmentId" value="@d.DepartmentId" />
-                                    <select class="form-select form-select-sm" name="ManagerEmployeeId">
-                                        <option value="">-- select --</option>
-                                        @foreach (var e in Model.Employees)
-                                        {
-                                            <option value="@e.EmployeeId">@e.DisplayName</option>
-                                        }
-                                    </select>
-                                    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                                    <input type="hidden" name="ManagerEmployeeId" id="mgr_id_@d.DepartmentId" value="@(Model.ManagerIdByDeptId.TryGetValue(d.DepartmentId, out var mid) ? mid : 0)" />
+
+                                    <input class="form-control form-control-sm"
+                                           id="mgr_txt_@d.DepartmentId"
+                                           placeholder="Type manager name..."
+                                           value="@(Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var mgrName2) ? mgrName2 : "")" />
+
+                                    <div id="mgr_box_@d.DepartmentId" class="list-group typeahead-box d-none"></div>
+
+                                    <div class="mt-2 d-flex gap-2">
+                                        <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                                    </div>
                                 </form>
                             </td>
                         </tr>
@@ -43,3 +52,20 @@
         <a class="btn btn-outline-secondary" href="/Admin">Back</a>
     </div>
 </div>
+@section Scripts {
+    <script src="~/js/typeahead.js"></script>
+    <script>
+        (function(){
+          @foreach (var d in Model.Departments)
+          {
+                <text>
+                  HIT_typeaheadEmployee({
+                    input: document.getElementById('mgr_txt_@d.DepartmentId'),
+                    hidden: document.getElementById('mgr_id_@d.DepartmentId'),
+                    box: document.getElementById('mgr_box_@d.DepartmentId')
+                  });
+                </text>
+          }
+        })();
+    </script>
+}

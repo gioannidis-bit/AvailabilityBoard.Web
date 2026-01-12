@@ -33,6 +33,32 @@ public sealed class LdapService
         );
     }
 
+    private string[] GetUserSearchBasesOrDefault(string fallbackBaseDn)
+    {
+        var bases = _cfg.GetSection("Ldap:UserSearchBases").Get<string[]>()
+                    ?? Array.Empty<string>();
+
+        bases = bases
+            .Select(s => (s ?? "").Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToArray();
+
+        return bases.Length > 0 ? bases : new[] { fallbackBaseDn };
+    }
+
+    private string[] GetGroupSearchBasesOrDefault(string fallbackBaseDn)
+    {
+        var bases = _cfg.GetSection("Ldap:GroupSearchBases").Get<string[]>()
+                    ?? Array.Empty<string>();
+
+        bases = bases
+            .Select(s => (s ?? "").Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToArray();
+
+        return bases.Length > 0 ? bases : new[] { fallbackBaseDn };
+    }
+
     public LdapUser AuthenticateAndFetchUser(string username, string password)
     {
         var (server, port, useLdaps, baseDn, _) = GetCfg();
@@ -155,9 +181,25 @@ public sealed class LdapService
     public IEnumerable<LdapUser> FetchAllUsers()
     {
         var (server, port, useLdaps, baseDn, _) = GetCfg();
-        var bindUser = _cfg["Ldap:BindUser"] ?? throw new Exception("Ldap:BindUser missing");
+
+        var bindUserRaw = _cfg["Ldap:BindUser"] ?? throw new Exception("Ldap:BindUser missing");
         var bindPass = _cfg["Ldap:BindPassword"] ?? throw new Exception("Ldap:BindPassword missing");
         var filter = _cfg["Ldap:AllUsersFilter"] ?? "(&(objectCategory=person)(objectClass=user))";
+
+        // Support bind formats:
+        // - DOMAIN\\user
+        // - user@domain
+        // - (DN) CN=...,OU=...,DC=...
+        NetworkCredential bindCred;
+        if (bindUserRaw.Contains('\\'))
+        {
+            var parts = bindUserRaw.Split('\\', 2);
+            bindCred = new NetworkCredential(parts[1], bindPass, parts[0]);
+        }
+        else
+        {
+            bindCred = new NetworkCredential(bindUserRaw, bindPass);
+        }
 
         var identifier = new LdapDirectoryIdentifier(server, port, fullyQualifiedDnsHostName: false, connectionless: false);
         using var conn = new LdapConnection(identifier) { AuthType = AuthType.Negotiate };
@@ -171,31 +213,115 @@ public sealed class LdapService
             conn.SessionOptions.VerifyServerCertificate += (_, __) => true; // production: validate cert
         }
 
-        conn.Credential = new NetworkCredential(bindUser, bindPass);
-        conn.Bind();
+        try
+        {
+            conn.Credential = bindCred;
+            conn.Bind();
+        }
+        catch (LdapException ex) when (ex.ErrorCode == 49)
+        {
+            throw new Exception("AD Sync failed: invalid BindUser/BindPassword (LDAP error 49). Check Ldap:BindUser and Ldap:BindPassword.", ex);
+        }
+        catch (LdapException ex)
+        {
+            throw new Exception($"AD Sync failed: LDAP error {ex.ErrorCode}.", ex);
+        }
 
         var attrs = _cfg.GetSection("Ldap:Attributes").Get<string[]>() ??
                     new[] { "objectGUID", "displayName", "mail", "department", "manager", "memberOf", "sAMAccountName" };
 
+        // Αν ορίσεις Ldap:UserSearchBases, κάνουμε search μόνο σε αυτά τα OUs.
+        // Διαφορετικά, πέφτουμε στο Ldap:BaseDn.
+        var searchBases = GetUserSearchBasesOrDefault(baseDn);
+
+        // De-dupe (σε περίπτωση overlap/λάθους config)
+        var seen = new HashSet<Guid>();
+
         // Paged search (για domains με πολλούς χρήστες)
-        var pageSize = 500;
-        var cookie = Array.Empty<byte>();
+        var pageSize = int.TryParse(_cfg["Ldap:PageSize"], out var ps) ? Math.Clamp(ps, 50, 2000) : 500;
 
-        while (true)
+        foreach (var sb in searchBases)
         {
-            var req = new SearchRequest(baseDn, filter, SearchScope.Subtree, attrs);
-            req.Controls.Add(new PageResultRequestControl(pageSize) { Cookie = cookie });
+            var cookie = Array.Empty<byte>();
+            while (true)
+            {
+                var req = new SearchRequest(sb, filter, SearchScope.Subtree, attrs);
+                req.Controls.Add(new PageResultRequestControl(pageSize) { Cookie = cookie });
 
+                var resp = (SearchResponse)conn.SendRequest(req);
+
+                foreach (SearchResultEntry entry in resp.Entries)
+                {
+                    var u = MapUser(entry);
+                    if (seen.Add(u.AdGuid))
+                        yield return u;
+                }
+
+                var pageResp = resp.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
+                if (pageResp?.Cookie == null || pageResp.Cookie.Length == 0)
+                    break;
+
+                cookie = pageResp.Cookie;
+            }
+        }
+    }
+
+    // Προαιρετικό: αν θέλεις να κάνεις UI για επιλογή groups (π.χ. για AdminGroups/ApproverGroups)
+    // χωρίς να ψάχνεις όλο το domain, εδώ περιορίζεις από Ldap:GroupSearchBases.
+    public IEnumerable<(string Name, string? SamAccountName, string DistinguishedName)> FetchAllGroups()
+    {
+        var (server, port, useLdaps, baseDn, _) = GetCfg();
+
+        var bindUserRaw = _cfg["Ldap:BindUser"] ?? throw new Exception("Ldap:BindUser missing");
+        var bindPass = _cfg["Ldap:BindPassword"] ?? throw new Exception("Ldap:BindPassword missing");
+
+        NetworkCredential bindCred;
+        if (bindUserRaw.Contains('\\'))
+        {
+            var parts = bindUserRaw.Split('\\', 2);
+            bindCred = new NetworkCredential(parts[1], bindPass, parts[0]);
+        }
+        else
+        {
+            bindCred = new NetworkCredential(bindUserRaw, bindPass);
+        }
+
+        var identifier = new LdapDirectoryIdentifier(server, port, fullyQualifiedDnsHostName: false, connectionless: false);
+        using var conn = new LdapConnection(identifier) { AuthType = AuthType.Negotiate };
+
+        conn.SessionOptions.ProtocolVersion = 3;
+        conn.SessionOptions.ReferralChasing = ReferralChasingOptions.None;
+
+        if (useLdaps)
+        {
+            conn.SessionOptions.SecureSocketLayer = true;
+            conn.SessionOptions.VerifyServerCertificate += (_, __) => true;
+        }
+
+        try
+        {
+            conn.Credential = bindCred;
+            conn.Bind();
+        }
+        catch (LdapException ex) when (ex.ErrorCode == 49)
+        {
+            throw new Exception("AD Group fetch failed: invalid BindUser/BindPassword (LDAP error 49).", ex);
+        }
+
+        var bases = GetGroupSearchBasesOrDefault(baseDn);
+        var attrs = new[] { "cn", "sAMAccountName" };
+        var filter = "(objectClass=group)";
+
+        foreach (var sb in bases)
+        {
+            var req = new SearchRequest(sb, filter, SearchScope.Subtree, attrs);
             var resp = (SearchResponse)conn.SendRequest(req);
-
             foreach (SearchResultEntry entry in resp.Entries)
-                yield return MapUser(entry);
-
-            var pageResp = resp.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
-            if (pageResp == null || pageResp.Cookie == null || pageResp.Cookie.Length == 0)
-                break;
-
-            cookie = pageResp.Cookie;
+            {
+                var name = entry.Attributes.Contains("cn") ? entry.Attributes["cn"][0]?.ToString() : entry.DistinguishedName;
+                var sam = entry.Attributes.Contains("sAMAccountName") ? entry.Attributes["sAMAccountName"][0]?.ToString() : null;
+                yield return (name ?? entry.DistinguishedName, sam, entry.DistinguishedName);
+            }
         }
     }
 

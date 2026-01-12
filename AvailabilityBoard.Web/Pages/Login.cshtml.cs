@@ -43,6 +43,7 @@ public class LoginModel : PageModel
 
             // Upsert employee and department
             var empId = await _sync.UpsertFromAd(adUser);
+            var emp = await _db.Employees.GetById(empId);
 
             // Try link manager (optional)
             if (!string.IsNullOrWhiteSpace(adUser.ManagerDn))
@@ -57,9 +58,17 @@ public class LoginModel : PageModel
                 }
             }
 
-            // Roles by AD group membership (simple)
-            bool isAdmin = IsInAnyConfiguredGroup(adUser.MemberOf, "Roles:AdminGroups");
-            bool isApproverGroup = IsInAnyConfiguredGroup(adUser.MemberOf, "Roles:ApproverGroups");
+            // Roles from AD groups (bootstrap / fallback)
+            var adIsAdmin = IsInAnyConfiguredGroup(adUser.MemberOf, "Roles:AdminGroups");
+            var adIsApprover = IsInAnyConfiguredGroup(adUser.MemberOf, "Roles:ApproverGroups");
+
+            // Roles from DB (backoffice truth)
+            var dbEmp = await _db.Employees.GetById(empId);
+
+            // Αν δεν έχεις ακόμα flags στη DB, θα είναι false και θα πέσουμε στο AD fallback
+            var isAdmin = (dbEmp?.IsAdmin ?? false) || adIsAdmin;
+            var isApproverGroup = (dbEmp?.IsApprover ?? false) || adIsApprover;
+
 
             var claims = new List<Claim>
             {

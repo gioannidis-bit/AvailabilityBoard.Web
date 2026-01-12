@@ -8,7 +8,11 @@
 
         @if (!string.IsNullOrWhiteSpace(Model.Message))
         {
-            <div class="alert alert-info">@Model.Message</div>
+            var isErr = Model.Message.Contains("failed", StringComparison.OrdinalIgnoreCase)
+                    || Model.Message.Contains("LDAP", StringComparison.OrdinalIgnoreCase)
+                    || Model.Message.Contains("invalid", StringComparison.OrdinalIgnoreCase);
+
+            <div class="alert @(isErr ? "alert-danger" : "alert-info")">@Model.Message</div>
         }
 
         <form method="post">

@@ -1,0 +1,175 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy="AdminOnly")]
+@model AvailabilityBoard.Web.Pages.Admin.EmployeesModel
+
+<div class="row g-3">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Employees</h5>
+
+        <form method="get" class="d-flex gap-2">
+          <input class="form-control" name="q" value="@Model.Q" placeholder="search name/sam/email" />
+          <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+
+        <div class="text-muted small mt-2">
+          Tip: γράψε 2–3 γράμματα και πάτα search.
+        </div>
+
+        <hr />
+
+        <div class="list-group">
+          @foreach (var e in Model.Results)
+          {
+            var active = (Model.EmployeeId == e.EmployeeId) ? "active" : "";
+            <a class="list-group-item list-group-item-action @active"
+               href="/Admin/Employees?employeeId=@e.EmployeeId&q=@Model.Q">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <div class="fw-semibold">@e.DisplayName</div>
+                  <div class="small text-muted">@e.SamAccountName</div>
+                </div>
+                <div class="text-end small">
+                  @(e.IsAdmin ? "ADMIN " : "")
+                  @(e.IsApprover ? "APPROVER" : "")
+                </div>
+              </div>
+            </a>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Edit</h5>
+
+        @if (Model.Selected == null)
+        {
+          <div class="text-muted">Διάλεξε έναν εργαζόμενο από αριστερά.</div>
+        }
+        else
+        {
+          @if (!string.IsNullOrWhiteSpace(Model.Message))
+          {
+            <div class="alert alert-success">@Model.Message</div>
+          }
+
+          <div class="mb-2">
+            <div class="fw-semibold">@Model.Selected.DisplayName</div>
+            <div class="text-muted small">@Model.Selected.SamAccountName · @(Model.Selected.Email ?? "-")</div>
+          </div>
+
+          <form method="post" class="row g-3">
+            <input type="hidden" name="EmployeeId" value="@Model.Selected.EmployeeId" />
+            <input type="hidden" name="Q" value="@Model.Q" />
+
+            <div class="col-12">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="IsAdmin" value="true" @(Model.EffectiveIsAdmin ? "checked" : "")>
+                <label class="form-check-label">Is Admin</label>
+              </div>
+
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="IsApprover" value="true" @(Model.EffectiveIsApprover ? "checked" : "")>
+                <label class="form-check-label">Is Approver</label>
+              </div>
+
+              <div class="text-muted small mt-1">
+                (Τα παραπάνω είναι η “τελική” κατάσταση μετά από overrides.)
+              </div>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Department override</label>
+              <select class="form-select" name="DepartmentIdOverride">
+                <option value="">(none)</option>
+                @foreach (var d in Model.Departments)
+                {
+                  if (Model.DepartmentIdOverride == d.DepartmentId)
+                  {
+                    <option value="@d.DepartmentId" selected>
+                      @d.Name
+                    </option>
+                  }
+                  else
+                  {
+                    <option value="@d.DepartmentId">
+                      @d.Name
+                    </option>
+                  }
+                }
+              </select>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Manager override</label>
+
+              <div class="position-relative">
+                <input type="hidden" name="ManagerEmployeeIdOverride" id="mgr_override_id" value="@(Model.ManagerEmployeeIdOverride ?? 0)" />
+
+                <input class="form-control"
+                       id="mgr_override_txt"
+                       placeholder="Type manager name..."
+                       value="@(Model.ManagerOverrideDisplay ?? "")" />
+
+                <div id="mgr_override_box" class="list-group typeahead-box d-none"></div>
+              </div>
+
+              <div class="text-muted small mt-1">
+                Άφησέ το κενό (και save) για να αφαιρεθεί το override.
+              </div>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Role overrides (optional)</label>
+              <div class="row g-2">
+                <div class="col-12 col-md-6">
+                  <select class="form-select" name="IsAdminOverride">
+                    <option value="">(no override)</option>
+                    @if (Model.IsAdminOverride == true) {<option value="true" selected>Force Admin = true</option>} else {<option value="true">Force Admin = true</option>}
+                    @if (Model.IsAdminOverride == false) {<option value="false" selected>Force Admin = false</option>} else {<option value="false">Force Admin = false</option>}
+                  </select>
+                </div>
+                <div class="col-12 col-md-6">
+                  <select class="form-select" name="IsApproverOverride">
+                    <option value="">(no override)</option>
+                    @if (Model.IsApproverOverride == true) {<option value="true" selected>Force Approver = true</option>} else {<option value="true">Force Approver = true</option>}
+                    @if (Model.IsApproverOverride == false) {<option value="false" selected>Force Approver = false</option>} else {<option value="false">Force Approver = false</option>}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <button class="btn btn-primary" type="submit">Save</button>
+              <a class="btn btn-outline-secondary" href="/Admin">Back</a>
+            </div>
+          </form>
+        }
+      </div>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+  <script src="~/js/typeahead.js"></script>
+  <script>
+    (function(){
+      var txt = document.getElementById('mgr_override_txt');
+      var hid = document.getElementById('mgr_override_id');
+      var box = document.getElementById('mgr_override_box');
+      if (!txt || !hid || !box) return;
+
+      // αν ο χρήστης σβήσει το textbox, καθαρίζουμε το hidden (override removed)
+      txt.addEventListener('blur', function(){
+        if (!txt.value.trim()) hid.value = '0';
+      });
+
+      HIT_typeaheadEmployee({ input: txt, hidden: hid, box: box });
+    })();
+  </script>
+}

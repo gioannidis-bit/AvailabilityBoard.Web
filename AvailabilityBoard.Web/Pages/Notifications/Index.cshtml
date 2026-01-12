@@ -1,0 +1,42 @@
+﻿@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@model AvailabilityBoard.Web.Pages.Notifications.IndexModel
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h5 class="mb-3">Notifications</h5>
+
+        @if (Model.Items.Count == 0)
+        {
+            <div class="text-muted">No notifications.</div>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var n in Model.Items)
+                {
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between">
+                            <div class="fw-semibold">@n.Title</div>
+                            <div class="small text-muted">@(((DateTime)n.CreatedAt).ToString("g"))</div>
+                        </div>
+                        <div>@n.Body</div>
+                        <div class="mt-2 d-flex gap-2">
+                            @if (n.Url != null)
+                            {
+                                <a class="btn btn-sm btn-outline-primary" href="@n.Url">Open</a>
+                            }
+                            @if (!(bool)n.IsRead)
+                            {
+                                <form method="post">
+                                    <input type="hidden" name="NotificationId" value="@n.NotificationId" />
+                                    <button class="btn btn-sm btn-outline-secondary" type="submit">Mark read</button>
+                                </form>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>

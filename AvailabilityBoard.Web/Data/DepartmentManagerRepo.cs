@@ -25,4 +25,12 @@ ELSE
     INSERT INTO dbo.DepartmentManagers(DepartmentId, ManagerEmployeeId) VALUES(@departmentId, @managerEmployeeId)
 ", new { departmentId, managerEmployeeId });
     }
+
+    public async Task<List<(int DepartmentId, int ManagerEmployeeId)>> GetAll()
+    {
+        using var cn = Db.Open(_cs);
+        var rows = await cn.QueryAsync<(int DepartmentId, int ManagerEmployeeId)>(
+            "SELECT DepartmentId, ManagerEmployeeId FROM dbo.DepartmentManagers");
+        return rows.ToList();
+    }
 }
