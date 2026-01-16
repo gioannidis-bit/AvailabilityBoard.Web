@@ -13,23 +13,32 @@ public class DepartmentsModel : PageModel
 
     public List<Department> Departments { get; set; } = new();
 
-    // Αυτό θα το χρησιμοποιεί το view σου (όπως στο screenshot)
+    // Αυτό θα το χρησιμοποιεί το view σου
     public Dictionary<int, string> ManagerNameByDeptId { get; set; } = new();
 
-    // Για να κρατάμε το ManagerEmployeeId ανά Department (χρησιμοποιείται από το typeahead hidden input)
+    // Για να κρατάμε το ManagerEmployeeId ανά Department (typeahead hidden input)
     public Dictionary<int, int> ManagerIdByDeptId { get; set; } = new();
 
-    // Αυτό θα το χρησιμοποιεί το view σου (foreach Model.Employees)
+    // Για typeahead (mgr picker)
     public List<Employee> Employees { get; set; } = new();
 
+    // -------- Existing: Set Manager --------
     [BindProperty] public int DepartmentId { get; set; }
     [BindProperty] public int ManagerEmployeeId { get; set; }
+
+    // -------- NEW: Create Department --------
+    [BindProperty] public string? NewDepartmentName { get; set; }
+    [BindProperty] public string? NewDepartmentColorHex { get; set; }
+    [BindProperty] public int NewDepartmentSortOrder { get; set; } = 0;
+    [BindProperty] public bool NewDepartmentIsActive { get; set; } = true;
 
     [TempData] public string? Message { get; set; }
 
     public async Task OnGet()
     {
-        Departments = await _db.Departments.GetAll();
+        // Admin βλέπει και inactive
+        Departments = await _db.Departments.GetAllIncludingInactive();
+
         Employees = await _db.Employees.ListTop(1000);
 
         // map EmployeeId -> DisplayName
@@ -47,15 +56,71 @@ public class DepartmentsModel : PageModel
         }
     }
 
+    // Existing POST: Set manager (κρατάμε όπως είναι για να μη σπάσει τίποτα)
     public async Task<IActionResult> OnPost()
     {
+        if (DepartmentId <= 0)
+        {
+            Message = "Invalid DepartmentId.";
+            return RedirectToPage();
+        }
+
         if (ManagerEmployeeId <= 0)
         {
             Message = "Please select a manager before saving.";
             return RedirectToPage();
         }
+
         await _db.DepartmentManagers.Upsert(DepartmentId, ManagerEmployeeId);
-        Message = "Saved.";
+        Message = "Saved manager.";
+        return RedirectToPage();
+    }
+
+    // NEW POST handler: Create Department
+    public async Task<IActionResult> OnPostCreate()
+    {
+        var name = (NewDepartmentName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Message = "Department name is required.";
+            return RedirectToPage();
+        }
+
+        string? color = (NewDepartmentColorHex ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(color))
+            color = null;
+
+        try
+        {
+            var id = await _db.Departments.Create(
+                name: name,
+                colorHex: color,
+                defaultApproverEmployeeId: null,
+                sortOrder: NewDepartmentSortOrder,
+                isActive: NewDepartmentIsActive
+            );
+
+            Message = $"Created department: {name} (Id={id})";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+
+        return RedirectToPage();
+    }
+
+    // NEW POST handler: Toggle Active (θα το χρησιμοποιήσει το UI)
+    public async Task<IActionResult> OnPostToggleActive(int departmentId, bool isActive)
+    {
+        if (departmentId <= 0)
+        {
+            Message = "Invalid DepartmentId.";
+            return RedirectToPage();
+        }
+
+        await _db.Departments.SetActive(departmentId, isActive);
+        Message = "Updated department status.";
         return RedirectToPage();
     }
 }

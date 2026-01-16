@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 
 namespace AvailabilityBoard.Web.Data;
 
@@ -31,6 +31,18 @@ ELSE
         using var cn = Db.Open(_cs);
         var rows = await cn.QueryAsync<(int DepartmentId, int ManagerEmployeeId)>(
             "SELECT DepartmentId, ManagerEmployeeId FROM dbo.DepartmentManagers");
+        return rows.ToList();
+    }
+
+    /// <summary>
+    /// Επιστρέφει τα dept IDs όπου ο employee είναι manager
+    /// </summary>
+    public async Task<List<int>> GetManagedDepartmentIds(int managerEmployeeId)
+    {
+        using var cn = Db.Open(_cs);
+        var rows = await cn.QueryAsync<int>(
+            "SELECT DepartmentId FROM dbo.DepartmentManagers WHERE ManagerEmployeeId=@managerEmployeeId",
+            new { managerEmployeeId });
         return rows.ToList();
     }
 }

@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 
 namespace AvailabilityBoard.Web.Data;
 
@@ -29,24 +29,25 @@ public sealed class EmployeeRepo
     {
         using var cn = Db.Open(_cs);
 
-        // update if exists
         var existingId = await cn.ExecuteScalarAsync<int?>(
             "SELECT EmployeeId FROM dbo.Employees WHERE AdGuid=@adGuid",
             new { adGuid });
 
         if (existingId.HasValue)
         {
+            // Αν ήταν deactivated και τώρα είναι active, καθαρίζουμε το deactivation
             await cn.ExecuteAsync(
                 @"UPDATE dbo.Employees
                   SET SamAccountName=@sam, DisplayName=@displayName, Email=@email, DepartmentId=@departmentId,
-                      IsActive=@isActive, LastSyncedAt=SYSUTCDATETIME()
+                      IsActive=@isActive, LastSyncedAt=SYSUTCDATETIME(),
+                      DeactivatedAt = CASE WHEN @isActive=1 THEN NULL ELSE DeactivatedAt END,
+                      DeactivationReason = CASE WHEN @isActive=1 THEN NULL ELSE DeactivationReason END
                   WHERE EmployeeId=@id",
                 new { id = existingId.Value, sam, displayName, email, departmentId, isActive });
 
             return existingId.Value;
         }
 
-        // insert
         var newId = await cn.ExecuteScalarAsync<int>(
             @"INSERT INTO dbo.Employees(AdGuid, SamAccountName, DisplayName, Email, DepartmentId, IsActive)
               OUTPUT INSERTED.EmployeeId
@@ -81,7 +82,7 @@ public sealed class EmployeeRepo
         using var cn = Db.Open(_cs);
         return await cn.QuerySingleOrDefaultAsync<Employee>(
             @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
-          FROM dbo.Employees WHERE EmployeeId=@employeeId",
+              FROM dbo.Employees WHERE EmployeeId=@employeeId",
             new { employeeId });
     }
 
@@ -98,8 +99,8 @@ public sealed class EmployeeRepo
         using var cn = Db.Open(_cs);
         var rows = await cn.QueryAsync<Employee>(
             @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email, DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
-          FROM dbo.Employees WHERE IsActive=1 AND IsApprover=1
-          ORDER BY DisplayName");
+              FROM dbo.Employees WHERE IsActive=1 AND IsApprover=1
+              ORDER BY DisplayName");
         return rows.ToList();
     }
 
@@ -109,9 +110,9 @@ public sealed class EmployeeRepo
         var rows = await cn.QueryAsync<Employee>(
             $@"SELECT TOP (@top) EmployeeId, AdGuid, SamAccountName, DisplayName, Email,
                   DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
-           FROM dbo.Employees
-           WHERE IsActive=1
-           ORDER BY DisplayName",
+               FROM dbo.Employees
+               WHERE IsActive=1
+               ORDER BY DisplayName",
             new { top });
         return rows.ToList();
     }
@@ -124,17 +125,76 @@ public sealed class EmployeeRepo
         if (q.Length == 0)
             return await ListTop(top);
 
-        // basic LIKE search (γρήγορο MVP). Αν έχεις πολλούς users, βάζουμε full-text μετά.
         var like = "%" + q.Replace("[", "[[]").Replace("%", "[%]").Replace("_", "[_]") + "%";
 
         var rows = await cn.QueryAsync<Employee>(
             @"SELECT TOP (@top) EmployeeId, AdGuid, SamAccountName, DisplayName, Email,
                  DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
-          FROM dbo.Employees
-          WHERE IsActive=1
-            AND (DisplayName LIKE @like OR SamAccountName LIKE @like OR Email LIKE @like)
-          ORDER BY DisplayName",
+              FROM dbo.Employees
+              WHERE IsActive=1
+                AND (DisplayName LIKE @like OR SamAccountName LIKE @like OR Email LIKE @like)
+              ORDER BY DisplayName",
             new { like, top });
+        return rows.ToList();
+    }
+
+    // ========== NEW METHODS FOR SYNC ==========
+
+    /// <summary>
+    /// Επιστρέφει όλα τα AD GUIDs των active employees
+    /// </summary>
+    public async Task<List<Guid>> GetAllActiveAdGuids()
+    {
+        using var cn = Db.Open(_cs);
+        var rows = await cn.QueryAsync<Guid>(
+            "SELECT AdGuid FROM dbo.Employees WHERE IsActive=1");
+        return rows.ToList();
+    }
+
+    /// <summary>
+    /// Soft-delete: IsActive=0 + καταγραφή λόγου
+    /// </summary>
+    public async Task Deactivate(Guid adGuid, string reason)
+    {
+        using var cn = Db.Open(_cs);
+        await cn.ExecuteAsync(
+            @"UPDATE dbo.Employees 
+              SET IsActive=0, DeactivatedAt=SYSUTCDATETIME(), DeactivationReason=@reason
+              WHERE AdGuid=@adGuid AND IsActive=1",
+            new { adGuid, reason });
+    }
+
+    // ========== PERMISSION-FILTERED QUERIES ==========
+
+    /// <summary>
+    /// Employees του ίδιου department (για calendar view)
+    /// </summary>
+    public async Task<List<Employee>> GetByDepartment(int departmentId)
+    {
+        using var cn = Db.Open(_cs);
+        var rows = await cn.QueryAsync<Employee>(
+            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email,
+                     DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
+              FROM dbo.Employees
+              WHERE DepartmentId=@departmentId AND IsActive=1
+              ORDER BY DisplayName",
+            new { departmentId });
+        return rows.ToList();
+    }
+
+    /// <summary>
+    /// Employees από πολλά departments (για users με extra access)
+    /// </summary>
+    public async Task<List<Employee>> GetByDepartments(IEnumerable<int> departmentIds)
+    {
+        using var cn = Db.Open(_cs);
+        var rows = await cn.QueryAsync<Employee>(
+            @"SELECT EmployeeId, AdGuid, SamAccountName, DisplayName, Email,
+                     DepartmentId, ManagerEmployeeId, IsActive, IsAdmin, IsApprover
+              FROM dbo.Employees
+              WHERE DepartmentId IN @departmentIds AND IsActive=1
+              ORDER BY DisplayName",
+            new { departmentIds = departmentIds.ToArray() });
         return rows.ToList();
     }
 }

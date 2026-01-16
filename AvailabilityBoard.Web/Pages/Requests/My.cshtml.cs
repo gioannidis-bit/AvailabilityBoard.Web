@@ -29,11 +29,20 @@ public class MyModel : PageModel
 
     public string? Error { get; set; }
     public string? Success { get; set; }
+    
+    // For prefilling from dashboard
+    public string? PrefilledStartDate { get; set; }
 
-    public async Task OnGet()
+    public async Task OnGet([FromQuery] string? startDate = null)
     {
         Types = await _db.Types.GetAll();
         MyRequests = await _db.Requests.GetMyRequests(User.GetEmployeeId());
+        
+        // Prefill start date if provided
+        if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var date))
+        {
+            PrefilledStartDate = date.ToString("yyyy-MM-ddTHH:mm");
+        }
     }
 
     public async Task<IActionResult> OnPost()

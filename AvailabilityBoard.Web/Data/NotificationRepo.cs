@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 
 namespace AvailabilityBoard.Web.Data;
 
@@ -43,5 +43,13 @@ public sealed class NotificationRepo
             @"UPDATE dbo.Notifications SET IsRead=1
               WHERE NotificationId=@notificationId AND ToEmployeeId=@toEmployeeId",
             new { notificationId, toEmployeeId });
+    }
+
+    public async Task MarkAllRead(int toEmployeeId)
+    {
+        using var cn = Db.Open(_cs);
+        await cn.ExecuteAsync(
+            "UPDATE dbo.Notifications SET IsRead=1 WHERE ToEmployeeId=@toEmployeeId AND IsRead=0",
+            new { toEmployeeId });
     }
 }

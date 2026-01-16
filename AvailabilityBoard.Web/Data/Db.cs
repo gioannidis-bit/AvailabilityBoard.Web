@@ -15,6 +15,11 @@ public sealed class Db
         Notifications = new NotificationRepo(_cs);
         DepartmentManagers = new DepartmentManagerRepo(_cs);
         Overrides = new EmployeeOverrideRepo(_cs);
+        SyncLogs = new AdSyncLogRepo(_cs);
+        DepartmentAccess = new DepartmentAccessRepo(_cs);
+
+        // ✅ Scheduling
+        Schedules = new ScheduleRepo(_cs);
     }
 
     public DepartmentRepo Departments { get; }
@@ -24,6 +29,11 @@ public sealed class Db
     public NotificationRepo Notifications { get; }
     public DepartmentManagerRepo DepartmentManagers { get; }
     public EmployeeOverrideRepo Overrides { get; }
+    public AdSyncLogRepo SyncLogs { get; }
+    public DepartmentAccessRepo DepartmentAccess { get; }
+
+    // ✅ Scheduling
+    public ScheduleRepo Schedules { get; }
 
     public static SqlConnection Open(string cs)
     {

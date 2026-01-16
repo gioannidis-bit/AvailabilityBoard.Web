@@ -1,47 +1,155 @@
 ﻿@page
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "AdminOnly")]
 @model AvailabilityBoard.Web.Pages.Admin.DepartmentsModel
+@{
+    ViewData["Title"] = "Departments";
+}
 
-<div class="card shadow-sm">
-    <div class="card-body">
-        <h5 class="mb-3">Departments & Managers</h5>
+<div class="container-fluid">
 
-        @if (!string.IsNullOrWhiteSpace(Model.Message))
-        {
-            <div class="alert alert-info">@Model.Message</div>
-        }
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h2 class="mb-0">Departments</h2>
+        <div class="text-muted small">Admin only</div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Model.Message))
+    {
+        <div class="alert alert-info">@Model.Message</div>
+    }
+
+    <!-- Create Department -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <strong>Create Department</strong>
+        </div>
+        <div class="card-body">
+            <form method="post" asp-page-handler="Create" class="row g-3">
+                <div class="col-md-5">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" name="NewDepartmentName" value="" placeholder="e.g. Support" required />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">ColorHex</label>
+                    <input class="form-control" name="NewDepartmentColorHex" value="" placeholder="#1f77b4" />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">SortOrder</label>
+                    <input class="form-control" type="number" name="NewDepartmentSortOrder" value="0" />
+                </div>
+
+                <div class="col-md-2 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="NewDepartmentIsActive" value="true" checked />
+                        <label class="form-check-label">Active</label>
+                    </div>
+                </div>
+
+                <div class="col-md-1 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Create</button>
+                </div>
+            </form>
+
+            <div class="text-muted small mt-2">
+                Tip: αφήνεις ColorHex κενό και θα εμφανίζεται χωρίς χρώμα.
+            </div>
+        </div>
+    </div>
+
+    <!-- Departments list -->
+    <div class="card">
+        <div class="card-header">
+            <strong>All Departments</strong>
+        </div>
 
         <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
+            <table class="table table-sm table-striped align-middle mb-0">
+                <thead class="table-light">
                     <tr>
-                        <th>Department</th>
-                        <th>Manager</th>
-                        <th style="width:420px;">Set manager</th>
+                        <th style="width:60px;">Id</th>
+                        <th>Name</th>
+                        <th style="width:130px;">Color</th>
+                        <th style="width:90px;">Sort</th>
+                        <th style="width:120px;">Active</th>
+                        <th style="width:360px;">Manager</th>
+                        <th style="width:110px;">Members</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var d in Model.Departments)
                     {
+                        var hasMgr = Model.ManagerIdByDeptId.TryGetValue(d.DepartmentId, out var mgrId);
+                        var mgrName = Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var mname) ? mname : "";
                         <tr>
-                            <td>@d.Name</td>
-                            <td>@(Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var mgrName) ? mgrName : "-")</td>
-                            <td style="min-width:420px;">
-                                <form method="post" class="position-relative">
-                                    <input type="hidden" name="DepartmentId" value="@d.DepartmentId" />
-                                    <input type="hidden" name="ManagerEmployeeId" id="mgr_id_@d.DepartmentId" value="@(Model.ManagerIdByDeptId.TryGetValue(d.DepartmentId, out var mid) ? mid : 0)" />
+                            <td>@d.DepartmentId</td>
 
-                                    <input class="form-control form-control-sm"
-                                           id="mgr_txt_@d.DepartmentId"
-                                           placeholder="Type manager name..."
-                                           value="@(Model.ManagerNameByDeptId.TryGetValue(d.DepartmentId, out var mgrName2) ? mgrName2 : "")" />
+                            <td>
+                                <div class="fw-semibold">@d.Name</div>
+                                <div class="text-muted small">@((d.IsActive ? "Active" : "Inactive"))</div>
+                            </td>
 
-                                    <div id="mgr_box_@d.DepartmentId" class="list-group typeahead-box d-none"></div>
-
-                                    <div class="mt-2 d-flex gap-2">
-                                        <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(d.ColorHex))
+                                {
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span style="display:inline-block;width:18px;height:18px;border-radius:4px;border:1px solid rgba(0,0,0,.2);background:@d.ColorHex"></span>
+                                        <code class="small">@d.ColorHex</code>
                                     </div>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                            </td>
+
+                            <td>@d.SortOrder</td>
+
+                            <td>
+                                <form method="post" asp-page-handler="ToggleActive" class="d-inline">
+                                    <input type="hidden" name="departmentId" value="@d.DepartmentId" />
+                                    <input type="hidden" name="isActive" value="@(!d.IsActive)" />
+                                    @if (d.IsActive)
+                                    {
+                                        <button type="submit" class="btn btn-sm btn-outline-success">Active</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Inactive</button>
+                                    }
                                 </form>
+                            </td>
+
+                            <td>
+                                <form method="post" class="d-flex align-items-center gap-2">
+                                    <input type="hidden" name="DepartmentId" value="@d.DepartmentId" />
+
+                                    <select class="form-select form-select-sm" name="ManagerEmployeeId" style="min-width:240px;">
+                                        <option value="">-- select --</option>
+                                        @foreach (var e in Model.Employees)
+                                        {
+                                            var selected = hasMgr && e.EmployeeId == mgrId;
+                                            <option value="@e.EmployeeId" selected="@(selected ? "selected" : null)">
+                                                @e.DisplayName
+                                            </option>
+                                        }
+                                    </select>
+
+                                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                </form>
+
+                                @if (!string.IsNullOrWhiteSpace(mgrName))
+                                {
+                                    <div class="text-muted small mt-1">
+                                        Current: <span class="fw-semibold">@mgrName</span>
+                                    </div>
+                                }
+                            </td>
+
+                            <td>
+                                <a class="btn btn-sm btn-outline-dark"
+                                   href="/Admin/DepartmentMembers?departmentId=@d.DepartmentId">
+                                    Members
+                                </a>
                             </td>
                         </tr>
                     }
@@ -49,23 +157,11 @@
             </table>
         </div>
 
-        <a class="btn btn-outline-secondary" href="/Admin">Back</a>
+        <div class="card-body border-top">
+            <div class="text-muted small">
+                Το “Members” θα μας πάει στην επόμενη σελίδα (DepartmentMembers) όπου θα κάνουμε assign users.
+            </div>
+        </div>
     </div>
+
 </div>
-@section Scripts {
-    <script src="~/js/typeahead.js"></script>
-    <script>
-        (function(){
-          @foreach (var d in Model.Departments)
-          {
-                <text>
-                  HIT_typeaheadEmployee({
-                    input: document.getElementById('mgr_txt_@d.DepartmentId'),
-                    hidden: document.getElementById('mgr_id_@d.DepartmentId'),
-                    box: document.getElementById('mgr_box_@d.DepartmentId')
-                  });
-                </text>
-          }
-        })();
-    </script>
-}

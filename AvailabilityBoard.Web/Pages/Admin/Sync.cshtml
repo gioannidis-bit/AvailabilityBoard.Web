@@ -1,0 +1,102 @@
+@page
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "AdminOnly")]
+@model AvailabilityBoard.Web.Pages.Admin.SyncModel
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">AD Sync Status</h5>
+            <form method="post">
+                <button class="btn btn-primary" name="Action" value="sync">Sync Now</button>
+            </form>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Model.Message))
+        {
+            var isErr = Model.Message.Contains("failed", StringComparison.OrdinalIgnoreCase) 
+                     || Model.Message.Contains("error", StringComparison.OrdinalIgnoreCase);
+            <div class="alert @(isErr ? "alert-danger" : "alert-success")">@Model.Message</div>
+        }
+
+        @if (Model.LastSync != null)
+        {
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-md-3">
+                    <div class="border rounded p-3 text-center">
+                        <div class="text-muted small">Last Sync</div>
+                        <div class="fw-semibold">@(((DateTime)Model.LastSync.CompletedAt).ToString("g"))</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="border rounded p-3 text-center">
+                        <div class="text-muted small">Status</div>
+                        <div class="fw-semibold @(Model.LastSync.Status == "Success" ? "text-success" : "text-danger")">
+                            @Model.LastSync.Status
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-2">
+                    <div class="border rounded p-3 text-center">
+                        <div class="text-muted small">Added</div>
+                        <div class="fw-semibold text-success">+@Model.LastSync.UsersAdded</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-2">
+                    <div class="border rounded p-3 text-center">
+                        <div class="text-muted small">Updated</div>
+                        <div class="fw-semibold">@Model.LastSync.UsersUpdated</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-2">
+                    <div class="border rounded p-3 text-center">
+                        <div class="text-muted small">Deactivated</div>
+                        <div class="fw-semibold text-danger">-@Model.LastSync.UsersDeactivated</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <h6>Recent Sync History</h6>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Started</th>
+                        <th>Completed</th>
+                        <th>Status</th>
+                        <th>Added</th>
+                        <th>Updated</th>
+                        <th>Deactivated</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model.RecentSyncs)
+                    {
+                        <tr>
+                            <td>@(((DateTime)s.StartedAt).ToString("g"))</td>
+                            <td>@(s.CompletedAt != null ? ((DateTime)s.CompletedAt).ToString("g") : "-")</td>
+                            <td>
+                                <span class="badge @(s.Status == "Success" ? "bg-success" : s.Status == "Running" ? "bg-warning" : "bg-danger")">
+                                    @s.Status
+                                </span>
+                            </td>
+                            <td>@s.UsersAdded</td>
+                            <td>@s.UsersUpdated</td>
+                            <td>@s.UsersDeactivated</td>
+                            <td class="text-truncate" style="max-width:200px;" title="@s.ErrorMessage">
+                                @(s.ErrorMessage ?? "-")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="text-muted small mt-3">
+            Auto-sync runs every @Model.SyncIntervalMinutes minutes. Configuration in appsettings.json.
+        </div>
+
+        <a class="btn btn-outline-secondary mt-3" href="/Admin">Back</a>
+    </div>
+</div>

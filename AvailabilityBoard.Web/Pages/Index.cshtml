@@ -1,40 +1,484 @@
-﻿@page
+@page
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @model AvailabilityBoard.Web.Pages.IndexModel
 
-<div class="row g-3">
-    <div class="col-12 col-lg-3">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <h6 class="mb-3">Φίλτρα</h6>
+<style>
+    /* Filter Bar */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: stretch;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,.05);
+    }
 
-                <div class="mb-2">
-                    <label class="form-label">Τμήμα</label>
-                    <select id="department" class="form-select">
-                        <option value="">Όλα</option>
-                    </select>
-                </div>
+    .filter-section {
+        display: flex;
+        flex-direction: column;
+        gap: .5rem;
+        flex: 1;
+        min-width: 200px;
+    }
 
-                <div class="mb-2">
-                    <label class="form-label">Τύποι</label>
-                    <select id="types" class="form-select" multiple size="6"></select>
-                    <div class="text-muted small mt-1">Ctrl/Shift για multi-select</div>
-                </div>
+    .filter-section-title {
+        font-size: .7rem;
+        font-weight: 600;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        padding-left: .25rem;
+    }
 
-                <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" id="myTeamOnly">
-                    <label class="form-check-label" for="myTeamOnly">Μόνο η ομάδα μου</label>
-                </div>
+    .filter-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .4rem;
+        align-items: center;
+    }
 
-                <a class="btn btn-primary w-100" href="/Requests/My">Νέο αίτημα / Τα αιτήματά μου</a>
-            </div>
+    .pill {
+        border: 1px solid rgba(0,0,0,.1);
+        border-radius: 20px;
+        padding: .35rem .7rem;
+        font-size: .8rem;
+        background: white;
+        cursor: pointer;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        transition: all .15s ease;
+        font-weight: 500;
+    }
+
+    .pill:hover {
+        border-color: rgba(0,0,0,.2);
+        box-shadow: 0 2px 4px rgba(0,0,0,.08);
+    }
+
+    .pill .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+
+    .pill .count {
+        background: rgba(0,0,0,.08);
+        padding: .1rem .4rem;
+        border-radius: 10px;
+        font-size: .7rem;
+        font-weight: 600;
+        margin-left: .1rem;
+    }
+
+    .pill.active {
+        box-shadow: 0 2px 6px rgba(0,0,0,.15);
+        transform: translateY(-1px);
+    }
+
+    .pill.active[data-kind="type"] {
+        color: white;
+        border-color: transparent;
+    }
+
+    .pill.active[data-kind="type"] .count {
+        background: rgba(255,255,255,.25);
+    }
+
+    .pill.active[data-kind="dept"] {
+        background: #212529;
+        color: white;
+        border-color: transparent;
+    }
+
+    .pill.active[data-kind="dept"] .count {
+        background: rgba(255,255,255,.2);
+    }
+
+    .filter-actions {
+        display: flex;
+        align-items: flex-end;
+        gap: .5rem;
+    }
+
+    .pill-clear {
+        border-style: dashed;
+        color: #6c757d;
+        background: transparent;
+    }
+
+    .pill-clear:hover {
+        background: white;
+        color: #dc3545;
+        border-color: #dc3545;
+    }
+
+    .filter-divider {
+        width: 1px;
+        background: rgba(0,0,0,.1);
+        align-self: stretch;
+        margin: 0 .5rem;
+    }
+
+    /* Empty state indicator */
+    .filter-empty {
+        color: #adb5bd;
+        font-size: .8rem;
+        font-style: italic;
+        padding: .35rem .5rem;
+    }
+
+    /* Snapshot Cards */
+    .snapshot-card {
+        border-radius: 12px;
+        padding: 1rem;
+        color: white;
+        min-width: 140px;
+        transition: transform .2s,box-shadow .2s;
+        cursor: pointer;
+    }
+
+    .snapshot-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,.15)
+    }
+
+    .snapshot-card.selected {
+        outline: 3px solid #212529;
+        outline-offset: 2px;
+    }
+
+    .snapshot-count {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1
+    }
+
+    .snapshot-label {
+        font-size: .85rem;
+        opacity: .9
+    }
+
+    .snapshot-avatars {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: .5rem
+    }
+
+    .avatar-circle {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(255,255,255,.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .7rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .2s;
+    }
+
+        .avatar-circle:hover {
+            background: rgba(255,255,255,.4)
+        }
+
+    /* Weekly Grid */
+    .weekly-grid {
+        overflow-x: auto
+    }
+
+        .weekly-grid table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 2px
+        }
+
+        .weekly-grid th {
+            padding: .5rem;
+            text-align: center;
+            font-weight: 500;
+            font-size: .8rem;
+            color: #6c757d
+        }
+
+        .weekly-grid td {
+            padding: .4rem;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .weekly-grid .emp-name {
+            text-align: left;
+            font-weight: 500;
+            white-space: nowrap;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis
+        }
+
+    .grid-cell {
+        width: 40px;
+        height: 36px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .7rem;
+        font-weight: 600;
+        color: white;
+        cursor: pointer;
+        transition: transform .15s;
+    }
+
+        .grid-cell:hover {
+            transform: scale(1.1)
+        }
+
+        .grid-cell.empty {
+            background: #e9ecef;
+            color: transparent
+        }
+
+    /* View Toggle */
+    .view-toggle {
+        display: flex;
+        gap: .25rem;
+        background: #e9ecef;
+        padding: 3px;
+        border-radius: 8px
+    }
+
+        .view-toggle button {
+            border: none;
+            background: transparent;
+            padding: .4rem .75rem;
+            border-radius: 6px;
+            font-size: .85rem;
+            cursor: pointer;
+            transition: all .2s
+        }
+
+            .view-toggle button.active {
+                background: white;
+                box-shadow: 0 1px 3px rgba(0,0,0,.1)
+            }
+
+    /* Tooltip */
+    .custom-tooltip {
+        position: absolute;
+        background: #1a1a2e;
+        color: white;
+        padding: .5rem .75rem;
+        border-radius: 6px;
+        font-size: .8rem;
+        z-index: 1000;
+        pointer-events: none;
+        max-width: 260px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.2)
+    }
+
+        .custom-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #1a1a2e
+        }
+
+    @@media (max-width: 768px) {
+        .snapshot-card {
+            min-width: 110px;
+            padding: .75rem
+        }
+
+        .snapshot-count {
+            font-size: 1.5rem
+        }
+
+        .weekly-grid .emp-name {
+            max-width: 95px;
+            font-size: .8rem
+        }
+
+        .grid-cell {
+            width: 32px;
+            height: 28px;
+            font-size: .6rem
+        }
+    }
+
+    .fc-event {
+        border-radius: 4px !important;
+        font-size: .8rem !important
+    }
+
+    .fc-daygrid-event {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis
+    }
+</style>
+
+<!-- FILTERS (visible only to managers) -->
+@if (Model.CanManage)
+{
+<div class="filter-bar mb-3">
+    <div class="filter-section" id="typeFilterSection">
+        <div class="filter-section-title">Κατάσταση</div>
+        <div class="filter-pills" id="typeFilters">
+            <span class="filter-empty">Φόρτωση...</span>
         </div>
     </div>
 
-    <div class="col-12 col-lg-9">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <div id="calendar"></div>
+    <div class="filter-divider d-none d-md-block"></div>
+
+    <div class="filter-section" id="deptFilterSection">
+        <div class="filter-section-title">Τμήμα</div>
+        <div class="filter-pills" id="deptFilters">
+            <span class="filter-empty">Φόρτωση...</span>
+        </div>
+    </div>
+
+    <div class="filter-actions">
+        <span class="pill pill-clear d-none" id="btnClearFilters" title="Καθαρισμός φίλτρων">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"/>
+            </svg>
+            Clear
+        </span>
+    </div>
+</div>
+
+<!-- Active Filters Summary -->
+<div id="activeFiltersInfo" class="small text-muted mb-3 d-none">
+    <span id="filterSummary"></span>
+</div>
+}
+
+<!-- Today's Snapshot -->
+<div class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">
+            <span id="snapshot-title">Σήμερα</span>
+            <small class="text-muted ms-2" id="snapshot-date"></small>
+        </h5>
+        <a href="/Requests/My" class="btn btn-primary btn-sm">+ Νέο αίτημα</a>
+    </div>
+
+    <div id="snapshot-container" class="d-flex flex-wrap gap-3">
+        <div class="text-muted">Φόρτωση...</div>
+    </div>
+</div>
+
+<!-- View Toggle -->
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    @if (Model.CanManage)
+    {
+    <div class="text-muted small">
+        Tip: Click σε κελί στο grid για να δηλώσεις πρόγραμμα.
+    </div>
+    }
+    else
+    {
+    <div class="text-muted small">
+        Click σε κελί για να υποβάλεις αίτημα.
+    </div>
+    }
+
+    <div class="view-toggle">
+        <button id="btn-grid" class="active" title="Grid View">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zm8 0A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zm-8 8A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zm8 0A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3z" />
+            </svg>
+        </button>
+        <button id="btn-calendar" title="Calendar View">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z" />
+            </svg>
+        </button>
+    </div>
+</div>
+
+<!-- Week Navigation (grid view) -->
+<div id="week-nav" class="d-flex align-items-center gap-2 mb-3">
+    <button id="week-prev" class="btn btn-outline-secondary btn-sm">&larr;</button>
+    <span id="week-label" class="fw-semibold"></span>
+    <button id="week-next" class="btn btn-outline-secondary btn-sm">&rarr;</button>
+    <button id="week-today" class="btn btn-outline-primary btn-sm ms-2">Σήμερα</button>
+</div>
+
+<!-- Grid View -->
+<div id="grid-view" class="card shadow-sm mb-4">
+    <div class="card-body weekly-grid">
+        <table id="weekly-table">
+            <thead>
+                <tr>
+                    <th style="min-width:140px;">Όνομα</th>
+                    <th id="day-0">Δευ</th>
+                    <th id="day-1">Τρι</th>
+                    <th id="day-2">Τετ</th>
+                    <th id="day-3">Πεμ</th>
+                    <th id="day-4">Παρ</th>
+                    <th id="day-5">Σαβ</th>
+                    <th id="day-6">Κυρ</th>
+                </tr>
+            </thead>
+            <tbody id="grid-body">
+                <tr><td colspan="8" class="text-muted text-center py-4">Φόρτωση...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Calendar View -->
+<div id="calendar-view" class="card shadow-sm mb-4 d-none">
+    <div class="card-body">
+        <div id="calendar"></div>
+    </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip" class="custom-tooltip d-none"></div>
+
+<!-- Schedule Modal -->
+<div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-0">Πρόγραμμα</h5>
+                    <div class="text-muted small">
+                        <span id="schedEmployee">—</span> • <span id="schedDate">—</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="schedError" class="alert alert-danger d-none"></div>
+                <div class="mb-3">
+                    <label class="form-label">Τύπος</label>
+                    <select id="schedType" class="form-select"></select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Σημείωση</label>
+                    <textarea id="schedNote" class="form-control" rows="3" placeholder="π.χ. 09:00–17:00"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" id="schedDelete" class="btn btn-outline-danger">Delete</button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="schedSave" class="btn btn-primary">Save</button>
+                </div>
             </div>
         </div>
     </div>
@@ -43,72 +487,501 @@
 @section Scripts {
     <script>
         (async function() {
-          // load departments + types
-          const deptSel = document.getElementById('department');
-          const typesSel = document.getElementById('types');
-          const myTeamOnly = document.getElementById('myTeamOnly');
+          // User permissions from server
+          const canManage = @(Model.CanManage ? "true" : "false");
+          const isAdmin = @(Model.IsAdmin ? "true" : "false");
+          const currentEmployeeId = @Model.CurrentEmployeeId;
 
-          const depts = await fetch('/api/departments').then(r => r.json());
-          for (const d of depts) {
-            const o = document.createElement('option');
-            o.value = d.departmentId;
-            o.textContent = d.name;
-            deptSel.appendChild(o);
+          const tooltip = document.getElementById('tooltip');
+
+          let currentWeekStart = getMonday(new Date());
+          let typesData = [];
+          let deptsData = [];
+
+          // Multi-select state (only used by managers)
+          const selectedTypeIds = new Set();
+          const selectedDeptIds = new Set();
+
+          // ====== FETCH HELPERS ======
+          function buildParams(extra) {
+            const p = new URLSearchParams(extra || {});
+            if (canManage) {
+              if (selectedTypeIds.size) p.set('typeIds', Array.from(selectedTypeIds).join(','));
+              if (selectedDeptIds.size) p.set('deptIds', Array.from(selectedDeptIds).join(','));
+            }
+            return p;
           }
 
-          const types = await fetch('/api/types').then(r => r.json());
-          for (const t of types) {
-            const o = document.createElement('option');
-            o.value = t.code;
-            o.textContent = t.label;
-            typesSel.appendChild(o);
+          async function loadTypes() {
+            typesData = await fetch('/api/types').then(r => r.json());
+            if (canManage) renderTypeFilters();
+            fillSchedTypeOptions();
           }
 
-          function selectedTypeCodes() {
-            return Array.from(typesSel.selectedOptions).map(x => x.value).join(',');
+          async function loadDepartments() {
+            deptsData = await fetch('/api/departments').then(r => r.json());
+            if (canManage) renderDeptFilters();
           }
 
-          const calendarEl = document.getElementById('calendar');
-          const calendar = new FullCalendar.Calendar(calendarEl, {
-              locale: navigator.language || 'el',
-            initialView: window.innerWidth < 768 ? 'timeGridDay' : 'timeGridWeek',
-            height: 'auto',
-            firstDay: 1, // Monday
-            nowIndicator: true,
-            headerToolbar: {
-              left: 'prev,next today',
-              center: 'title',
-              right: 'dayGridMonth,timeGridWeek,timeGridDay'
-            },
-            events: async (info, success, failure) => {
-              try {
-                      const qs = new URLSearchParams({
-          start: info.startStr,
-          end: info.endStr,
-          typeCodes: selectedTypeCodes(),
-          myTeamOnly: myTeamOnly.checked ? 'true' : 'false'
-        });
+          async function loadSnapshot() {
+            const p = buildParams();
+            const url = '/api/snapshot' + (p.toString() ? ('?' + p.toString()) : '');
+            const data = await fetch(url).then(r => r.json());
+            renderSnapshot(data);
+          }
 
-        if (deptSel.value) qs.set('departmentId', deptSel.value);
+          async function loadWeeklyGrid(weekStart) {
+            const ws = weekStart.toISOString().split('T')[0];
+            const p = buildParams({ weekStart: ws });
+            const url = '/api/weekly-grid?' + p.toString();
+            const data = await fetch(url).then(r => r.json());
+            renderGrid(data);
+            updateWeekLabel(weekStart);
+          }
 
-                const ev = await fetch('/api/events?' + qs.toString()).then(r => r.json());
-                success(ev);
-              } catch (e) {
-                failure(e);
+          // ====== FILTER UI ======
+          function renderTypeFilters() {
+            const container = document.getElementById('typeFilters');
+            if (!container) return;
+            if (!typesData.length) {
+              container.innerHTML = '<span class="filter-empty">Χωρίς διαθέσιμους τύπους</span>';
+              return;
+            }
+            
+            container.innerHTML = typesData.map(t => {
+              const isActive = selectedTypeIds.has(t.typeId);
+              const bg = isActive ? (t.colorHex || '#0d6efd') : 'white';
+              const fg = isActive ? 'white' : '#212529';
+              return `
+                <span class="pill ${isActive ? 'active' : ''}" data-kind="type" data-id="${t.typeId}"
+                      style="${isActive ? `background:${bg};color:${fg};` : ''}">
+                  <span class="dot" style="background:${t.colorHex || '#999'}"></span>
+                  ${t.label}
+                </span>`;
+            }).join('');
+            
+            updateClearButton();
+            updateFilterSummary();
+          }
+
+          function renderDeptFilters() {
+            const container = document.getElementById('deptFilters');
+            if (!container) return;
+            if (!deptsData.length) {
+              container.innerHTML = '<span class="filter-empty">Χωρίς διαθέσιμα τμήματα</span>';
+              return;
+            }
+            
+            container.innerHTML = deptsData.map(d => {
+              const isActive = selectedDeptIds.has(d.departmentId);
+              const color = d.colorHex || '#6c757d';
+              const bg = isActive ? color : 'white';
+              const fg = isActive ? 'white' : '#212529';
+              return `
+                <span class="pill ${isActive ? 'active' : ''}" data-kind="dept" data-id="${d.departmentId}"
+                      style="${isActive ? `background:${bg};color:${fg};border-color:${color};` : `border-color:${color};`}">
+                  <span class="dot" style="background:${color}"></span>
+                  ${d.name}
+                </span>`;
+            }).join('');
+            
+            updateClearButton();
+            updateFilterSummary();
+          }
+
+          // Event listeners only for managers
+          if (canManage) {
+            document.getElementById('typeFilters')?.addEventListener('click', async (e) => {
+              const pill = e.target.closest('.pill[data-kind="type"]');
+              if (!pill) return;
+              const id = parseInt(pill.dataset.id, 10);
+              if (selectedTypeIds.has(id)) selectedTypeIds.delete(id);
+              else selectedTypeIds.add(id);
+              renderTypeFilters();
+              await refreshAll();
+            });
+
+            document.getElementById('deptFilters')?.addEventListener('click', async (e) => {
+              const pill = e.target.closest('.pill[data-kind="dept"]');
+              if (!pill) return;
+              const id = parseInt(pill.dataset.id, 10);
+              if (selectedDeptIds.has(id)) selectedDeptIds.delete(id);
+              else selectedDeptIds.add(id);
+              renderDeptFilters();
+              await refreshAll();
+            });
+
+            document.getElementById('btnClearFilters')?.addEventListener('click', async () => {
+              selectedTypeIds.clear();
+              selectedDeptIds.clear();
+              renderTypeFilters();
+              renderDeptFilters();
+              await refreshAll();
+            });
+          }
+
+          async function refreshAll() {
+            await loadSnapshot();
+            await loadWeeklyGrid(currentWeekStart);
+            if (calendar) calendar.refetchEvents();
+          }
+
+          function updateClearButton() {
+            const btn = document.getElementById('btnClearFilters');
+            if (!btn) return;
+            const hasFilters = selectedTypeIds.size > 0 || selectedDeptIds.size > 0;
+            btn.classList.toggle('d-none', !hasFilters);
+          }
+
+          function updateFilterSummary() {
+            const info = document.getElementById('activeFiltersInfo');
+            const summary = document.getElementById('filterSummary');
+            if (!info || !summary) return;
+            
+            const parts = [];
+            
+            if (selectedTypeIds.size > 0) {
+              const typeNames = typesData
+                .filter(t => selectedTypeIds.has(t.typeId))
+                .map(t => t.label);
+              parts.push(`Κατάσταση: ${typeNames.join(', ')}`);
+            }
+            
+            if (selectedDeptIds.size > 0) {
+              const deptNames = deptsData
+                .filter(d => selectedDeptIds.has(d.departmentId))
+                .map(d => d.name);
+              parts.push(`Τμήμα: ${deptNames.join(', ')}`);
+            }
+            
+            if (parts.length > 0) {
+              summary.textContent = `🔍 Φίλτρα: ${parts.join(' • ')}`;
+              info.classList.remove('d-none');
+            } else {
+              info.classList.add('d-none');
+            }
+          }
+
+          // ====== RENDER ======
+          function renderSnapshot(data) {
+            const container = document.getElementById('snapshot-container');
+            document.getElementById('snapshot-date').textContent =
+              new Date().toLocaleDateString('el-GR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+            if (!data || data.length === 0) {
+              container.innerHTML = '<div class="text-muted">Δεν υπάρχουν δεδομένα.</div>';
+              return;
+            }
+
+            container.innerHTML = data.map(s => `
+              <div class="snapshot-card" style="background:${s.colorHex}">
+                <div class="snapshot-count">${s.count}</div>
+                <div class="snapshot-label">${s.typeLabel}</div>
+                <div class="snapshot-avatars">
+                  ${(s.employees || []).slice(0, 6).map(e => `
+                    <div class="avatar-circle"
+                         data-name="${e.displayName}"
+                         data-returns="${e.returnsAt ? 'Επιστρέφει: ' + formatDate(e.returnsAt) : ''}"
+                         onmouseenter="showTooltip(event, this)"
+                         onmouseleave="hideTooltip()">
+                      ${e.initials}
+                    </div>
+                  `).join('')}
+                  ${(s.employees || []).length > 6 ? `<div class="avatar-circle">+${(s.employees||[]).length-6}</div>` : ''}
+                </div>
+              </div>
+            `).join('');
+          }
+
+          function renderGrid(data) {
+            if (data?.dayNames?.length === 7) {
+              data.dayNames.forEach((name, i) => {
+                const th = document.getElementById(`day-${i}`);
+                if (th) th.textContent = name;
+              });
+            }
+
+            const tbody = document.getElementById('grid-body');
+            if (!data?.rows?.length) {
+              tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-4">Δεν υπάρχουν δεδομένα</td></tr>';
+              return;
+            }
+
+            tbody.innerHTML = data.rows.map(row => `
+              <tr>
+                <td class="emp-name" title="${row.displayName}">${row.displayName}</td>
+                ${row.days.map((day, i) => {
+                  const dateStr = data.days[i];
+                  if (day && day.typeCode) {
+                    return `<td>
+                      <div class="grid-cell"
+                           style="background:${day.colorHex}"
+                           data-employeeid="${row.employeeId}"
+                           data-name="${row.displayName}"
+                           data-type="${day.typeLabel}"
+                           data-date="${dateStr}"
+                           onmouseenter="showGridTooltip(event, this)"
+                           onmouseleave="hideTooltip()">
+                        ${day.typeCode.substring(0,3)}
+                      </div>
+                    </td>`;
+                  }
+                  return `<td>
+                    <div class="grid-cell empty"
+                         data-employeeid="${row.employeeId}"
+                         data-name="${row.displayName}"
+                         data-type=""
+                         data-date="${dateStr}"
+                         onmouseenter="showGridTooltip(event, this)"
+                         onmouseleave="hideTooltip()">·</div>
+                  </td>`;
+                }).join('')}
+              </tr>
+            `).join('');
+          }
+
+          function updateWeekLabel(weekStart) {
+            const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+            const opts = { day:'numeric', month:'short' };
+            document.getElementById('week-label').textContent =
+              `${weekStart.toLocaleDateString('el-GR', opts)} - ${weekEnd.toLocaleDateString('el-GR', opts)}`;
+          }
+
+          // ====== CALENDAR ======
+          let calendar;
+          function initCalendar() {
+            const calendarEl = document.getElementById('calendar');
+            calendar = new FullCalendar.Calendar(calendarEl, {
+              locale: 'el',
+              initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
+              height: 'auto',
+              firstDay: 1,
+              nowIndicator: true,
+              headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,listWeek' },
+              events: async (info, success, failure) => {
+                try {
+                  const p = buildParams({ start: info.startStr, end: info.endStr });
+                  const url = '/api/events?' + p.toString();
+                  const events = await fetch(url).then(r => r.json());
+                  success(events);
+                } catch (e) { failure(e); }
+              }
+            });
+            calendar.render();
+          }
+
+          // ====== TOOLTIPS ======
+          window.showTooltip = function(e, el) {
+            tooltip.innerHTML = `<strong>${el.dataset.name}</strong>${el.dataset.returns ? '<br>'+el.dataset.returns : ''}`;
+            positionTooltip(e);
+          };
+          window.showGridTooltip = function(e, el) {
+            const d = new Date(el.dataset.date).toLocaleDateString('el-GR', { weekday:'long', day:'numeric', month:'long' });
+            tooltip.innerHTML = `<strong>${el.dataset.name}</strong><br>${el.dataset.type || '—'}<br><small>${d}</small>`;
+            positionTooltip(e);
+          };
+          function positionTooltip(e){
+            tooltip.classList.remove('d-none');
+            const rect = tooltip.getBoundingClientRect();
+            let left = e.pageX - rect.width/2;
+            let top  = e.pageY - rect.height - 15;
+            if (left < 10) left = 10;
+            if (top < 10) top = e.pageY + 15;
+            tooltip.style.left = left + 'px';
+            tooltip.style.top  = top + 'px';
+          }
+          window.hideTooltip = function(){ tooltip.classList.add('d-none'); };
+
+          // ====== VIEW TOGGLE ======
+          const btnGrid = document.getElementById('btn-grid');
+          const btnCalendar = document.getElementById('btn-calendar');
+          const gridView = document.getElementById('grid-view');
+          const calendarView = document.getElementById('calendar-view');
+          const weekNav = document.getElementById('week-nav');
+
+          btnGrid.addEventListener('click', () => {
+            btnGrid.classList.add('active'); btnCalendar.classList.remove('active');
+            gridView.classList.remove('d-none'); calendarView.classList.add('d-none');
+            weekNav.classList.remove('d-none');
+          });
+
+          btnCalendar.addEventListener('click', () => {
+            btnCalendar.classList.add('active'); btnGrid.classList.remove('active');
+            calendarView.classList.remove('d-none'); gridView.classList.add('d-none');
+            weekNav.classList.add('d-none');
+            if (!calendar) initCalendar();
+            else calendar.render();
+          });
+
+          // ====== WEEK NAV ======
+          document.getElementById('week-prev').addEventListener('click', async () => {
+            currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+            await loadWeeklyGrid(currentWeekStart);
+          });
+          document.getElementById('week-next').addEventListener('click', async () => {
+            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+            await loadWeeklyGrid(currentWeekStart);
+          });
+          document.getElementById('week-today').addEventListener('click', async () => {
+            currentWeekStart = getMonday(new Date());
+            await loadWeeklyGrid(currentWeekStart);
+          });
+
+          // ====== SCHEDULING MODAL ======
+          const scheduleModalEl = document.getElementById('scheduleModal');
+          const scheduleModal = (scheduleModalEl && window.bootstrap) ? new bootstrap.Modal(scheduleModalEl) : null;
+
+          const schedEmployeeEl = document.getElementById('schedEmployee');
+          const schedDateEl = document.getElementById('schedDate');
+          const schedTypeEl = document.getElementById('schedType');
+          const schedNoteEl = document.getElementById('schedNote');
+          const schedSaveBtn = document.getElementById('schedSave');
+          const schedDeleteBtn = document.getElementById('schedDelete');
+          const schedErrorEl = document.getElementById('schedError');
+
+          let schedCtx = null;
+
+          function setSchedError(msg){
+            if (!msg){
+              schedErrorEl.classList.add('d-none'); schedErrorEl.textContent='';
+            } else {
+              schedErrorEl.classList.remove('d-none'); schedErrorEl.textContent=msg;
+            }
+          }
+
+          function fillSchedTypeOptions(selectedId){
+            if (!schedTypeEl) return;
+            schedTypeEl.innerHTML = typesData.map(t => `<option value="${t.typeId}">${t.label} (${t.code})</option>`).join('');
+            if (selectedId) schedTypeEl.value = String(selectedId);
+          }
+
+          async function openScheduleModal(cell){
+            if (!scheduleModal){ alert('Bootstrap modal δεν είναι διαθέσιμο.'); return; }
+
+            const employeeId = parseInt(cell.dataset.employeeid || '0', 10);
+            const employeeName = cell.dataset.name || '';
+            const dateStr = cell.dataset.date || '';
+            if (!employeeId || !dateStr) return;
+
+            schedCtx = { employeeId, employeeName, dateStr };
+            setSchedError('');
+
+            schedEmployeeEl.textContent = employeeName || `EmployeeId=${employeeId}`;
+            schedDateEl.textContent = new Date(dateStr).toLocaleDateString('el-GR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+            fillSchedTypeOptions(typesData[0]?.typeId);
+            schedNoteEl.value = '';
+
+            schedDeleteBtn.disabled = true;
+            schedSaveBtn.disabled = true;
+
+            scheduleModal.show();
+
+            try{
+              const resp = await fetch(`/api/schedules/day?employeeId=${employeeId}&date=${encodeURIComponent(dateStr)}`);
+              if (resp.status === 403){
+                setSchedError('Δεν έχεις δικαίωμα να αλλάξεις πρόγραμμα για αυτόν τον υπάλληλο.');
+                return;
+              }
+              if (!resp.ok){
+                setSchedError(`Σφάλμα: ${resp.status}`);
+                return;
+              }
+              const data = await resp.json();
+              if (data.exists){
+                fillSchedTypeOptions(data.typeId);
+                schedNoteEl.value = data.note || '';
+                schedDeleteBtn.disabled = false;
+              }
+              schedSaveBtn.disabled = false;
+            } catch {
+              setSchedError('Αποτυχία επικοινωνίας με τον server.');
+            }
+          }
+
+          async function saveSchedule(){
+            if (!schedCtx) return;
+            setSchedError('');
+
+            const payload = {
+              employeeId: schedCtx.employeeId,
+              date: schedCtx.dateStr,
+              typeId: parseInt(schedTypeEl.value || '0', 10),
+              note: schedNoteEl.value || null
+            };
+
+            try{
+              const resp = await fetch('/api/schedules/upsert', {
+                method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+              });
+              if (resp.status === 403){ setSchedError('Δεν έχεις δικαίωμα.'); return; }
+              if (!resp.ok){ setSchedError(`Σφάλμα: ${resp.status}`); return; }
+              scheduleModal.hide();
+              await refreshAll();
+            } catch {
+              setSchedError('Αποτυχία αποθήκευσης (network).');
+            }
+          }
+
+          async function deleteSchedule(){
+            if (!schedCtx) return;
+            setSchedError('');
+
+            const payload = { employeeId: schedCtx.employeeId, date: schedCtx.dateStr };
+
+            try{
+              const resp = await fetch('/api/schedules/delete', {
+                method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+              });
+              if (resp.status === 403){ setSchedError('Δεν έχεις δικαίωμα.'); return; }
+              if (!resp.ok){ setSchedError(`Σφάλμα: ${resp.status}`); return; }
+              scheduleModal.hide();
+              await refreshAll();
+            } catch {
+              setSchedError('Αποτυχία διαγραφής (network).');
+            }
+          }
+
+          schedSaveBtn.addEventListener('click', saveSchedule);
+          schedDeleteBtn.addEventListener('click', deleteSchedule);
+
+          document.getElementById('grid-body').addEventListener('click', (e) => {
+            const cell = e.target.closest('.grid-cell');
+            if (!cell) return;
+            
+            if (canManage) {
+              // Managers can directly set schedules
+              openScheduleModal(cell);
+            } else {
+              // Regular users → redirect to request form
+              const dateStr = cell.dataset.date || '';
+              if (dateStr) {
+                const date = new Date(dateStr);
+                const formatted = date.toISOString().split('T')[0];
+                window.location.href = `/Requests/My?startDate=${formatted}`;
               }
             }
           });
 
-          calendar.render();
+          // ====== HELPERS ======
+          function getMonday(d){
+            const date = new Date(d);
+            const day = date.getDay();
+            const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+            return new Date(date.setDate(diff));
+          }
+          function formatDate(dateStr){
+            return new Date(dateStr).toLocaleDateString('el-GR', { weekday:'short', day:'numeric', month:'short' });
+          }
 
-          deptSel.addEventListener('change', () => calendar.refetchEvents());
-          typesSel.addEventListener('change', () => calendar.refetchEvents());
-          myTeamOnly.addEventListener('change', () => calendar.refetchEvents());
+          // ====== INIT ======
+          await loadTypes();
+          await loadDepartments();
+          await loadSnapshot();
+          await loadWeeklyGrid(currentWeekStart);
 
-          window.addEventListener('resize', () => {
-            const v = window.innerWidth < 768 ? 'timeGridDay' : 'timeGridWeek';
-            calendar.changeView(v);
-          });
+          if (window.innerWidth < 768) btnCalendar.click();
+
         })();
     </script>
 }

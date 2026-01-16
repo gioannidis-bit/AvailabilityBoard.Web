@@ -1,4 +1,4 @@
-﻿using AvailabilityBoard.Web.Data;
+using AvailabilityBoard.Web.Data;
 
 namespace AvailabilityBoard.Web.Services;
 
@@ -13,6 +13,15 @@ public sealed class EmployeeSyncService
         if (!string.IsNullOrWhiteSpace(u.Department))
             deptId = await _db.Departments.Ensure(u.Department.Trim());
 
+        // Check if there's a department override
+        var existing = await _db.Employees.GetByAdGuid(u.AdGuid);
+        if (existing != null)
+        {
+            var ovr = await _db.Overrides.Get(existing.EmployeeId);
+            if (ovr?.DepartmentIdOverride != null)
+                deptId = ovr.DepartmentIdOverride; // Keep override
+        }
+
         var empId = await _db.Employees.Upsert(
             adGuid: u.AdGuid,
             sam: u.SamAccountName,
@@ -22,7 +31,6 @@ public sealed class EmployeeSyncService
             isActive: true
         );
 
-        // Manager linking: if we can resolve later, we set it in another step (see Login handler)
         return empId;
     }
 }

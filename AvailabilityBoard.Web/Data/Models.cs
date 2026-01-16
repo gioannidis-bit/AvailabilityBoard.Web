@@ -1,6 +1,13 @@
-﻿namespace AvailabilityBoard.Web.Data;
+namespace AvailabilityBoard.Web.Data;
 
-public sealed record Department(int DepartmentId, string Name);
+public sealed record Department(
+    int DepartmentId, 
+    string Name,
+    string? ColorHex = null,
+    bool IsActive = true,
+    int? DefaultApproverEmployeeId = null,
+    int SortOrder = 0
+);
 
 public sealed record Employee(
     int EmployeeId,
@@ -15,7 +22,14 @@ public sealed record Employee(
     bool IsApprover
 );
 
-public sealed record AvailabilityType(int TypeId, string Code, string Label);
+public sealed record AvailabilityType(
+    int TypeId, 
+    string Code, 
+    string Label,
+    string ColorHex = "#6c757d",
+    string? IconClass = null,
+    int SortOrder = 0
+);
 
 public sealed record RequestRow(
     long RequestId,
@@ -24,6 +38,7 @@ public sealed record RequestRow(
     int TypeId,
     string TypeCode,
     string TypeLabel,
+    string TypeColorHex,
     DateTime StartDateTime,
     DateTime EndDateTime,
     string Status,
@@ -41,5 +56,25 @@ public sealed record CalendarEvent(
     DateTime start,
     DateTime end,
     string typeCode,
-    int employeeId
+    string color,
+    int employeeId,
+    string employeeName,
+    string? note
+);
+
+// Για το Today's Snapshot
+public sealed record AvailabilitySnapshot(
+    string TypeCode,
+    string TypeLabel,
+    string ColorHex,
+    int Count,
+    List<SnapshotEmployee> Employees
+);
+
+public sealed record SnapshotEmployee(
+    int EmployeeId,
+    string DisplayName,
+    string Initials,
+    int? DepartmentId,
+    DateTime? ReturnsAt
 );

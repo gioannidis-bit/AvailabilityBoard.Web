@@ -78,8 +78,14 @@
                 <label class="form-check-label">Is Approver</label>
               </div>
 
+
+              <div class="form-check form-switch mt-2">
+                <input class="form-check-input" type="checkbox" name="IsHiddenOverride" value="true" @(Model.EffectiveIsHidden ? "checked" : "")>
+                <label class="form-check-label text-danger">Hidden from Board</label>
+              </div>
+
               <div class="text-muted small mt-1">
-                (Τα παραπάνω είναι η “τελική” κατάσταση μετά από overrides.)
+                (Hidden = employee does not appear in dashboard/board.)
               </div>
             </div>
 

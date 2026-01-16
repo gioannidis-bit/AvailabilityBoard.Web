@@ -31,6 +31,7 @@ public class EmployeesModel : PageModel
     [BindProperty] public int? ManagerEmployeeIdOverride { get; set; }
     [BindProperty] public bool? IsAdminOverride { get; set; }
     [BindProperty] public bool? IsApproverOverride { get; set; }
+    [BindProperty] public bool? IsHiddenOverride { get; set; }
 
     // Effective role toggles
     [BindProperty] public bool IsAdmin { get; set; }
@@ -38,6 +39,7 @@ public class EmployeesModel : PageModel
 
     public bool EffectiveIsAdmin { get; set; }
     public bool EffectiveIsApprover { get; set; }
+    public bool EffectiveIsHidden { get; set; }
 
     public string? Message { get; set; }
 
@@ -57,10 +59,12 @@ public class EmployeesModel : PageModel
                 ManagerEmployeeIdOverride = ov?.ManagerEmployeeIdOverride;
                 IsAdminOverride = ov?.IsAdminOverride;
                 IsApproverOverride = ov?.IsApproverOverride;
+                IsHiddenOverride = ov?.IsHiddenOverride;
 
                 // Effective roles = base flags + override if exists
                 EffectiveIsAdmin = ov?.IsAdminOverride ?? Selected.IsAdmin;
                 EffectiveIsApprover = ov?.IsApproverOverride ?? Selected.IsApprover;
+                EffectiveIsHidden = ov?.IsHiddenOverride ?? false;
 
                 // display string για typeahead textbox
                 if (ManagerEmployeeIdOverride.HasValue)
@@ -82,7 +86,8 @@ public class EmployeesModel : PageModel
         [FromForm] int? DepartmentIdOverride,
         [FromForm] int? ManagerEmployeeIdOverride,
         [FromForm] bool? IsAdminOverride,
-        [FromForm] bool? IsApproverOverride
+        [FromForm] bool? IsApproverOverride,
+        [FromForm] bool? IsHiddenOverride
     )
     {
         // normalize 0 => null (από typeahead hidden input)
@@ -98,7 +103,8 @@ public class EmployeesModel : PageModel
             DepartmentIdOverride: DepartmentIdOverride,
             ManagerEmployeeIdOverride: ManagerEmployeeIdOverride,
             IsApproverOverride: IsApproverOverride,
-            IsAdminOverride: IsAdminOverride
+            IsAdminOverride: IsAdminOverride,
+            IsHiddenOverride: IsHiddenOverride
         ));
 
         return Redirect($"/Admin/Employees?employeeId={EmployeeId}&q={Uri.EscapeDataString(Q ?? "")}&saved=1");

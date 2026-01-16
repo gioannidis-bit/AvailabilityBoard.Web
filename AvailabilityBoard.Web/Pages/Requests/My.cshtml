@@ -30,7 +30,8 @@
 
                     <div class="mb-2">
                         <label class="form-label">Έναρξη</label>
-                        <input class="form-control" type="datetime-local" name="Start" required />
+                        <input class="form-control" type="datetime-local" name="Start" required 
+                               value="@(Model.PrefilledStartDate ?? "")" />
                     </div>
 
                     <div class="mb-2">

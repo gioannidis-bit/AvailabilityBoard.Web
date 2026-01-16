@@ -25,84 +25,114 @@ public class LoginModel : PageModel
 
     [BindProperty] public string Username { get; set; } = "";
     [BindProperty] public string Password { get; set; } = "";
+
     public string? Error { get; set; }
+    public string? ReturnUrl { get; set; }
 
-    public void OnGet() { }
-
-    public async Task<IActionResult> OnPost()
+    public void OnGet(string? returnUrl = null)
     {
+        ReturnUrl = returnUrl;
+    }
+
+    public async Task<IActionResult> OnPost(string? returnUrl = null)
+    {
+        ReturnUrl = returnUrl ?? "/";
+
+        if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
+        {
+            Error = "Username and password are required.";
+            return Page();
+        }
+
         try
         {
-            if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
+            // 1. Authenticate against AD
+            var adUser = _ldap.AuthenticateAndFetchUser(Username, Password);
+
+            // 2. Upsert in DB
+            var empId = await _sync.UpsertFromAd(adUser);
+
+            // 3. Get employee record with overrides
+            var emp = await _db.Employees.GetById(empId);
+            if (emp == null)
             {
-                Error = "Δώσε username/password.";
+                Error = "Employee record not found.";
                 return Page();
             }
 
-            var adUser = _ldap.AuthenticateAndFetchUser(Username.Trim(), Password);
+            // 4. Apply overrides
+            var ovr = await _db.Overrides.Get(empId);
+            var effectiveDeptId = ovr?.DepartmentIdOverride ?? emp.DepartmentId;
+            var effectiveIsAdmin = ovr?.IsAdminOverride ?? emp.IsAdmin;
+            var effectiveIsApprover = ovr?.IsApproverOverride ?? emp.IsApprover;
 
-            // Upsert employee and department
-            var empId = await _sync.UpsertFromAd(adUser);
-            var emp = await _db.Employees.GetById(empId);
+            // 5. Check if user is a department manager
+            var managedDepts = await _db.DepartmentManagers.GetManagedDepartmentIds(empId);
+            var isDeptManager = managedDepts.Count > 0;
 
-            // Try link manager (optional)
-            if (!string.IsNullOrWhiteSpace(adUser.ManagerDn))
+            // 6. Check approver group membership
+            var approverGroups = _cfg.GetSection("Roles:ApproverGroups").Get<string[]>() ?? Array.Empty<string>();
+            var isInApproverGroup = approverGroups.Any(g =>
+                adUser.MemberOf.Any(dn => dn.Contains("CN=" + g + ",", StringComparison.OrdinalIgnoreCase)));
+
+            // 7. Build claims
+            var claims = new List<Claim>
             {
-                // For MVP we reuse user's own credentials to resolve manager DN.
-                // In production, better use a service account in config.
-                var mgr = _ldap.FetchUserByDn(Username.Trim(), Password, adUser.ManagerDn);
-                if (mgr != null)
+                new(ClaimTypes.Name, emp.DisplayName),
+                new(ClaimTypes.NameIdentifier, emp.AdGuid.ToString()),
+                new("employee_id", empId.ToString()),
+                new("sam", emp.SamAccountName),
+                new("is_admin", effectiveIsAdmin ? "1" : "0"),
+                new("is_approver", effectiveIsApprover ? "1" : "0"),
+                new("is_approver_group", isInApproverGroup ? "1" : "0"),
+                new("is_dept_manager", isDeptManager ? "1" : "0"),
+            };
+
+            if (effectiveDeptId.HasValue)
+                claims.Add(new Claim("department_id", effectiveDeptId.Value.ToString()));
+
+            if (!string.IsNullOrEmpty(emp.Email))
+                claims.Add(new Claim(ClaimTypes.Email, emp.Email));
+
+            // 8. Sign in
+            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            var principal = new ClaimsPrincipal(identity);
+
+            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal,
+                new AuthenticationProperties
                 {
-                    var mgrId = await _sync.UpsertFromAd(mgr);
-                    await _db.Employees.SetManager(empId, mgrId);
+                    IsPersistent = true,
+                    ExpiresUtc = DateTimeOffset.UtcNow.AddHours(12)
+                });
+
+            // 9. Try to link manager (if not already linked)
+            if (!string.IsNullOrEmpty(adUser.ManagerDn) && emp.ManagerEmployeeId == null)
+            {
+                try
+                {
+                    var mgrUser = _ldap.FetchUserByDn(Username, Password, adUser.ManagerDn);
+                    if (mgrUser != null)
+                    {
+                        var mgr = await _db.Employees.GetByAdGuid(mgrUser.AdGuid);
+                        if (mgr != null)
+                            await _db.Employees.SetManager(empId, mgr.EmployeeId);
+                    }
+                }
+                catch
+                {
+                    // Ignore manager linking errors
                 }
             }
 
-            // Roles from AD groups (bootstrap / fallback)
-            var adIsAdmin = IsInAnyConfiguredGroup(adUser.MemberOf, "Roles:AdminGroups");
-            var adIsApprover = IsInAnyConfiguredGroup(adUser.MemberOf, "Roles:ApproverGroups");
-
-            // Roles from DB (backoffice truth)
-            var dbEmp = await _db.Employees.GetById(empId);
-
-            // Αν δεν έχεις ακόμα flags στη DB, θα είναι false και θα πέσουμε στο AD fallback
-            var isAdmin = (dbEmp?.IsAdmin ?? false) || adIsAdmin;
-            var isApproverGroup = (dbEmp?.IsApprover ?? false) || adIsApprover;
-
-
-            var claims = new List<Claim>
-            {
-                new Claim("emp_id", empId.ToString()),
-                new Claim(ClaimTypes.Name, adUser.DisplayName),
-                new Claim("sam", adUser.SamAccountName),
-                new Claim("is_admin", isAdmin ? "1" : "0"),
-                new Claim("is_approver_group", isApproverGroup ? "1" : "0")
-            };
-
-            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
-
-            return RedirectToPage("/Index");
+            return LocalRedirect(ReturnUrl);
         }
         catch (Exception ex)
         {
-            Error = "Login failed: " + ex.Message;
+            Error = ex.Message.Contains("LDAP") || ex.Message.Contains("credentials")
+                ? "Invalid username or password."
+                : ex.Message;
+
             return Page();
         }
-    }
-
-    private bool IsInAnyConfiguredGroup(List<string> memberOfDns, string configPath)
-    {
-        var groups = _cfg.GetSection(configPath).Get<string[]>() ?? Array.Empty<string>();
-        if (groups.Length == 0) return false;
-
-        // memberOf contains DNs; we match by CN=GroupName
-        foreach (var g in groups)
-        {
-            var needle = "CN=" + g + ",";
-            if (memberOfDns.Any(dn => dn.Contains(needle, StringComparison.OrdinalIgnoreCase)))
-                return true;
-        }
-        return false;
     }
 }
