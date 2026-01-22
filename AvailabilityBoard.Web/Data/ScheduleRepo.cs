@@ -2,14 +2,18 @@
 
 namespace AvailabilityBoard.Web.Data;
 
-public sealed record EmployeeScheduleRow(
-    long ScheduleId,
+public sealed record EmployeeScheduleBlockRow(
+    long ScheduleBlockId,
     int EmployeeId,
     DateTime ScheduleDate,
     int TypeId,
     string TypeCode,
     string TypeLabel,
     string? ColorHex,
+    TimeSpan? StartTime,
+    TimeSpan? EndTime,
+    string? CustomerName,
+    string? OutActivity,
     string? Note,
     int UpdatedByEmployeeId,
     DateTime UpdatedAt
@@ -20,56 +24,88 @@ public sealed class ScheduleRepo
     private readonly string _cs;
     public ScheduleRepo(string cs) => _cs = cs;
 
-    public async Task<EmployeeScheduleRow?> GetDay(int employeeId, DateTime date)
+    public async Task<List<EmployeeScheduleBlockRow>> GetDayBlocks(int employeeId, DateTime date)
     {
         using var cn = Db.Open(_cs);
         var d = date.Date;
 
-        return await cn.QuerySingleOrDefaultAsync<EmployeeScheduleRow>(@"
-SELECT s.ScheduleId,
-       s.EmployeeId,
-       CAST(s.ScheduleDate AS datetime2) AS ScheduleDate,
-       s.TypeId,
+        var rows = await cn.QueryAsync<EmployeeScheduleBlockRow>(@"
+SELECT b.ScheduleBlockId,
+       b.EmployeeId,
+       CAST(b.ScheduleDate AS datetime2) AS ScheduleDate,
+       b.TypeId,
        t.Code AS TypeCode,
        t.Label AS TypeLabel,
        t.ColorHex AS ColorHex,
-       s.Note,
-       s.UpdatedByEmployeeId,
-       s.UpdatedAt
-FROM dbo.EmployeeSchedules s
-JOIN dbo.AvailabilityTypes t ON t.TypeId = s.TypeId
-WHERE s.EmployeeId = @employeeId AND s.ScheduleDate = @d
+       b.StartTime,
+       b.EndTime,
+       b.CustomerName,
+       b.OutActivity,
+       b.Note,
+       b.UpdatedByEmployeeId,
+       b.UpdatedAt
+FROM dbo.EmployeeScheduleBlocks b
+JOIN dbo.AvailabilityTypes t ON t.TypeId = b.TypeId
+WHERE b.EmployeeId = @employeeId
+  AND b.ScheduleDate = @d
+ORDER BY
+  CASE WHEN b.StartTime IS NULL THEN 0 ELSE 1 END,
+  b.StartTime,
+  b.EndTime,
+  b.ScheduleBlockId;
 ", new { employeeId, d });
+
+        return rows.ToList();
     }
 
-    public async Task Upsert(int employeeId, DateTime date, int typeId, string? note, int updatedByEmployeeId)
+    public async Task ReplaceDayBlocks(
+        int employeeId,
+        DateTime date,
+        IEnumerable<(int TypeId, TimeSpan? StartTime, TimeSpan? EndTime, string? CustomerName, string? OutActivity, string? Note)> blocks,
+        int updatedByEmployeeId)
     {
         using var cn = Db.Open(_cs);
+        using var tx = cn.BeginTransaction();
         var d = date.Date;
 
-        await cn.ExecuteAsync(@"
-MERGE dbo.EmployeeSchedules AS target
-USING (SELECT @employeeId AS EmployeeId, @d AS ScheduleDate) AS src
-ON (target.EmployeeId = src.EmployeeId AND target.ScheduleDate = src.ScheduleDate)
-WHEN MATCHED THEN
-    UPDATE SET TypeId=@typeId,
-               Note=@note,
-               UpdatedByEmployeeId=@updatedByEmployeeId,
-               UpdatedAt=SYSUTCDATETIME()
-WHEN NOT MATCHED THEN
-    INSERT (EmployeeId, ScheduleDate, TypeId, Note, UpdatedByEmployeeId)
-    VALUES (@employeeId, @d, @typeId, @note, @updatedByEmployeeId);
-", new { employeeId, d, typeId, note, updatedByEmployeeId });
+        // Replace the day's blocks atomically
+        await cn.ExecuteAsync(
+            @"DELETE FROM dbo.EmployeeScheduleBlocks WHERE EmployeeId=@employeeId AND ScheduleDate=@d;",
+            new { employeeId, d }, tx);
+
+        const string insertSql = @"
+INSERT INTO dbo.EmployeeScheduleBlocks
+    (EmployeeId, ScheduleDate, TypeId, StartTime, EndTime, CustomerName, OutActivity, Note, UpdatedByEmployeeId)
+VALUES
+    (@employeeId, @d, @typeId, @startTime, @endTime, @customerName, @outActivity, @note, @updatedByEmployeeId);
+";
+
+        foreach (var b in blocks)
+        {
+            await cn.ExecuteAsync(insertSql, new
+            {
+                employeeId,
+                d,
+                typeId = b.TypeId,
+                startTime = b.StartTime,
+                endTime = b.EndTime,
+                customerName = string.IsNullOrWhiteSpace(b.CustomerName) ? null : b.CustomerName.Trim(),
+                outActivity = string.IsNullOrWhiteSpace(b.OutActivity) ? null : b.OutActivity.Trim(),
+                note = string.IsNullOrWhiteSpace(b.Note) ? null : b.Note.Trim(),
+                updatedByEmployeeId
+            }, tx);
+        }
+
+        tx.Commit();
     }
 
-    public async Task Delete(int employeeId, DateTime date)
+    public async Task DeleteDay(int employeeId, DateTime date)
     {
         using var cn = Db.Open(_cs);
         var d = date.Date;
 
         await cn.ExecuteAsync(
-            @"DELETE FROM dbo.EmployeeSchedules
-              WHERE EmployeeId=@employeeId AND ScheduleDate=@d",
+            @"DELETE FROM dbo.EmployeeScheduleBlocks WHERE EmployeeId=@employeeId AND ScheduleDate=@d",
             new { employeeId, d });
     }
 }

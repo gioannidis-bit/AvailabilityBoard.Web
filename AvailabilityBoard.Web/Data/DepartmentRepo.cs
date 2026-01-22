@@ -18,7 +18,7 @@ public sealed class DepartmentRepo
         return rows.ToList();
     }
 
-    // ΝΕΟ: για Admin screens (να δείχνει και inactive)
+    // For admin screens (includes inactive departments too)
     public async Task<List<Department>> GetAllIncludingInactive()
     {
         using var cn = Db.Open(_cs);
@@ -34,7 +34,8 @@ public sealed class DepartmentRepo
         using var cn = Db.Open(_cs);
         return await cn.QuerySingleOrDefaultAsync<Department>(
             @"SELECT DepartmentId, Name, ColorHex, IsActive, DefaultApproverEmployeeId, SortOrder
-              FROM dbo.Departments WHERE DepartmentId=@departmentId",
+              FROM dbo.Departments
+              WHERE DepartmentId=@departmentId",
             new { departmentId });
     }
 
@@ -53,7 +54,7 @@ public sealed class DepartmentRepo
             new { name });
     }
 
-    // ΝΕΟ: Create department in-app (για admin UI)
+    // Create department (admin UI)
     public async Task<int> Create(string name, string? colorHex, int? defaultApproverEmployeeId, int sortOrder, bool isActive = true)
     {
         name = (name ?? "").Trim();
@@ -62,7 +63,7 @@ public sealed class DepartmentRepo
 
         using var cn = Db.Open(_cs);
 
-        // Απλό anti-duplicate
+        // anti-duplicate
         var exists = await cn.ExecuteScalarAsync<int?>(
             "SELECT DepartmentId FROM dbo.Departments WHERE Name=@name",
             new { name });
@@ -96,11 +97,11 @@ public sealed class DepartmentRepo
             new { departmentId, name, colorHex, defaultApproverEmployeeId, sortOrder });
     }
 
-    public async Task SetActive(int departmentId, bool isActive)
+    public async Task<int> SetActive(int departmentId, bool isActive)
     {
         using var cn = Db.Open(_cs);
-        await cn.ExecuteAsync(
+        return await cn.ExecuteAsync(
             "UPDATE dbo.Departments SET IsActive=@isActive WHERE DepartmentId=@departmentId",
-            new { departmentId, isActive });
+            new { departmentId, isActive = isActive ? 1 : 0 });
     }
 }

@@ -177,26 +177,30 @@ WHERE r.Status='Approved'
             sqlReq,
             new { start, end, deptIds, codes, typeIds, includeNoDepartment = includeNoDepartment ? 1 : 0 });
 
-        // 2) Schedules (all-day, excluding hidden employees)
+        // 2) Schedule blocks (excluding hidden employees)
         var startDate = start.Date;
         var endDate = end.Date;
 
         var sqlSched = @"
-SELECT -s.ScheduleId AS id,
+SELECT -b.ScheduleBlockId AS id,
        e.DisplayName AS title,
-       CAST(s.ScheduleDate AS datetime2) AS start,
-       DATEADD(day, 1, CAST(s.ScheduleDate AS datetime2)) AS [end],
+       DATEADD(second, DATEDIFF(second, 0, ISNULL(b.StartTime, '00:00:00')),
+              CAST(b.ScheduleDate AS datetime2)) AS start,
+       CASE
+           WHEN b.EndTime IS NULL THEN DATEADD(day, 1, CAST(b.ScheduleDate AS datetime2))
+           ELSE DATEADD(second, DATEDIFF(second, 0, b.EndTime), CAST(b.ScheduleDate AS datetime2))
+       END AS [end],
        t.Code AS typeCode,
        t.ColorHex AS color,
        e.EmployeeId AS employeeId,
        e.DisplayName AS employeeName,
-       s.Note AS note
-FROM dbo.EmployeeSchedules s
-JOIN dbo.Employees e ON e.EmployeeId=s.EmployeeId
+       b.Note AS note
+FROM dbo.EmployeeScheduleBlocks b
+JOIN dbo.Employees e ON e.EmployeeId=b.EmployeeId
 LEFT JOIN dbo.EmployeeOverrides o ON o.EmployeeId = e.EmployeeId
-JOIN dbo.AvailabilityTypes t ON t.TypeId=s.TypeId
-WHERE s.ScheduleDate >= @startDate
-  AND s.ScheduleDate <  @endDate
+JOIN dbo.AvailabilityTypes t ON t.TypeId=b.TypeId
+WHERE b.ScheduleDate >= @startDate
+  AND b.ScheduleDate <  @endDate
   AND e.IsActive = 1
   AND ISNULL(o.IsHiddenOverride, 0) = 0
   AND (
@@ -280,30 +284,41 @@ WHERE r.Status = 'Approved'
         // Track employees already “covered” by approved requests
         var coveredEmpIds = new HashSet<int>(reqRows.Select(r => (int)r.EmployeeId));
 
-        // Schedules for today (only if not covered by an approved request, excluding hidden)
+        // Schedule blocks for today (only if not covered by an approved request, excluding hidden)
+        // We pick ONE representative block per employee (earliest by StartTime) for the snapshot.
         var sqlSched = @"
-SELECT t.Code AS TypeCode,
-       t.Label AS TypeLabel,
-       t.ColorHex AS ColorHex,
-       e.EmployeeId,
-       e.DisplayName,
-       e.DepartmentId,
-       CAST(@tomorrow AS datetime2) AS EndDateTime
-FROM dbo.EmployeeSchedules s
-JOIN dbo.Employees e ON e.EmployeeId = s.EmployeeId
-LEFT JOIN dbo.EmployeeOverrides o ON o.EmployeeId = e.EmployeeId
-JOIN dbo.AvailabilityTypes t ON t.TypeId = s.TypeId
-WHERE s.ScheduleDate = @today
-  AND e.IsActive = 1
-  AND ISNULL(o.IsHiddenOverride, 0) = 0
-  AND (
-        e.DepartmentId IN @deptIds
-        OR (@includeNoDepartment = 1 AND e.DepartmentId IS NULL)
-      )
+WITH sched AS (
+    SELECT b.EmployeeId,
+           b.TypeId,
+           t.Code AS TypeCode,
+           t.Label AS TypeLabel,
+           t.ColorHex AS ColorHex,
+           e.DisplayName,
+           e.DepartmentId,
+           CAST(@tomorrow AS datetime2) AS EndDateTime,
+           ROW_NUMBER() OVER (
+               PARTITION BY b.EmployeeId
+               ORDER BY CASE WHEN b.StartTime IS NULL THEN 0 ELSE 1 END, b.StartTime, b.EndTime, b.ScheduleBlockId
+           ) AS rn
+    FROM dbo.EmployeeScheduleBlocks b
+    JOIN dbo.Employees e ON e.EmployeeId = b.EmployeeId
+    LEFT JOIN dbo.EmployeeOverrides o ON o.EmployeeId = e.EmployeeId
+    JOIN dbo.AvailabilityTypes t ON t.TypeId = b.TypeId
+    WHERE b.ScheduleDate = @today
+      AND e.IsActive = 1
+      AND ISNULL(o.IsHiddenOverride, 0) = 0
+      AND (
+            e.DepartmentId IN @deptIds
+            OR (@includeNoDepartment = 1 AND e.DepartmentId IS NULL)
+          )
+)
+SELECT TypeCode, TypeLabel, ColorHex, EmployeeId, DisplayName, DepartmentId, EndDateTime, TypeId
+FROM sched
+WHERE rn = 1
 ";
 
         if (typeIds.Length > 0)
-            sqlSched += " AND t.TypeId IN @typeIds ";
+            sqlSched += " AND TypeId IN @typeIds ";
 
         var schedRows = (await cn.QueryAsync<dynamic>(
             sqlSched,
@@ -386,8 +401,9 @@ SELECT r.EmployeeId,
        r.EndDateTime,
        t.Code AS TypeCode,
        t.Label AS TypeLabel,
-       t.ColorHex AS ColorHex,
-       t.TypeId AS TypeId
+      t.ColorHex AS ColorHex,
+t.TypeId AS TypeId,
+r.Note AS Note
 FROM dbo.AvailabilityRequests r
 JOIN dbo.Employees e ON e.EmployeeId = r.EmployeeId
 LEFT JOIN dbo.EmployeeOverrides o ON o.EmployeeId = e.EmployeeId
@@ -412,20 +428,25 @@ WHERE r.Status = 'Approved'
             .GroupBy(e => (int)e.EmployeeId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Schedules for the week
+        // Schedule blocks for the week
         var sqlSched = @"
-SELECT s.EmployeeId,
-       s.ScheduleDate,
+SELECT b.EmployeeId,
+       b.ScheduleDate,
+       b.StartTime,
+       b.EndTime,
        t.Code AS TypeCode,
        t.Label AS TypeLabel,
        t.ColorHex AS ColorHex,
-       t.TypeId AS TypeId
-FROM dbo.EmployeeSchedules s
-JOIN dbo.Employees e ON e.EmployeeId = s.EmployeeId
+       t.TypeId AS TypeId,
+       b.Note AS Note,
+       b.CustomerName,
+       b.OutActivity
+FROM dbo.EmployeeScheduleBlocks b
+JOIN dbo.Employees e ON e.EmployeeId = b.EmployeeId
 LEFT JOIN dbo.EmployeeOverrides o ON o.EmployeeId = e.EmployeeId
-JOIN dbo.AvailabilityTypes t ON t.TypeId = s.TypeId
-WHERE s.ScheduleDate >= @weekStartDate
-  AND s.ScheduleDate <  @weekEndDate
+JOIN dbo.AvailabilityTypes t ON t.TypeId = b.TypeId
+WHERE b.ScheduleDate >= @weekStartDate
+  AND b.ScheduleDate <  @weekEndDate
   AND e.IsActive = 1
   AND ISNULL(o.IsHiddenOverride, 0) = 0
   AND (
@@ -442,12 +463,9 @@ WHERE s.ScheduleDate >= @weekStartDate
             new { weekStartDate, weekEndDate, deptIds, includeNoDepartment = includeNoDepartment ? 1 : 0 }
         )).ToList();
 
-        var schedByEmpDay = new Dictionary<(int empId, DateTime day), dynamic>();
-        foreach (var s in sched)
-        {
-            var key = ((int)s.EmployeeId, ((DateTime)s.ScheduleDate).Date);
-            schedByEmpDay[key] = s;
-        }
+        var schedByEmpDay = sched
+            .GroupBy(s => ((int)s.EmployeeId, ((DateTime)s.ScheduleDate).Date))
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => (TimeSpan?)x.StartTime ?? TimeSpan.Zero).ToList());
 
         // Determine which employees to show
         IEnumerable<Employee> employeesToShow;
@@ -513,15 +531,44 @@ WHERE s.ScheduleDate >= @weekStartDate
                     }
                 }
 
-                // 2) Schedule fills empty
-                if (schedByEmpDay.TryGetValue((emp.EmployeeId, day), out var sd))
+                // 2) Schedule blocks fill empty
+                if (schedByEmpDay.TryGetValue((emp.EmployeeId, day), out var dayBlocks))
                 {
-                    // If type filter active, only show matching types
-                    if (!hasTypeFilter || typeIds.Contains((int)sd.TypeId))
+                    var blocksFiltered = dayBlocks
+                        .Where(b => !hasTypeFilter || typeIds.Contains((int)b.TypeId))
+                        .ToList();
+
+                    if (blocksFiltered.Count > 0)
                     {
-                        row.Days[i].TypeCode = sd.TypeCode;
-                        row.Days[i].TypeLabel = sd.TypeLabel;
-                        row.Days[i].ColorHex = sd.ColorHex;
+                        var blocks = blocksFiltered.Select(b => new WeeklyGridBlock
+                        {
+                            TypeId = (int)b.TypeId,
+                            TypeCode = (string)b.TypeCode,
+                            TypeLabel = (string)b.TypeLabel,
+                            ColorHex = (string?)b.ColorHex,
+                            StartTime = (TimeSpan?)b.StartTime,
+                            EndTime = (TimeSpan?)b.EndTime,
+                            CustomerName = (string?)b.CustomerName,
+                            OutActivity = (string?)b.OutActivity,
+                            Note = (string?)b.Note
+                        }).ToList();
+
+                        row.Days[i].Blocks = blocks;
+
+                        var distinctCodes = blocks.Select(x => x.TypeCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        if (distinctCodes.Count == 1)
+                        {
+                            var first = blocks[0];
+                            row.Days[i].TypeCode = first.TypeCode;
+                            row.Days[i].TypeLabel = first.TypeLabel;
+                            row.Days[i].ColorHex = first.ColorHex;
+                        }
+                        else
+                        {
+                            row.Days[i].TypeCode = "MIX";
+                            row.Days[i].TypeLabel = "Multiple";
+                            row.Days[i].ColorHex = "#212529";
+                        }
                     }
                 }
             }
@@ -561,21 +608,25 @@ WHERE r.Status = 'Approved'
 
 UNION ALL
 
-SELECT -s.ScheduleId AS id,
+SELECT -b.ScheduleBlockId AS id,
        e.DisplayName AS title,
-       CAST(s.ScheduleDate AS datetime2) AS start,
-       DATEADD(day, 1, CAST(s.ScheduleDate AS datetime2)) AS [end],
+       DATEADD(second, DATEDIFF(second, 0, ISNULL(b.StartTime, '00:00:00')),
+              CAST(b.ScheduleDate AS datetime2)) AS start,
+       CASE
+           WHEN b.EndTime IS NULL THEN DATEADD(day, 1, CAST(b.ScheduleDate AS datetime2))
+           ELSE DATEADD(second, DATEDIFF(second, 0, b.EndTime), CAST(b.ScheduleDate AS datetime2))
+       END AS [end],
        t.Code AS typeCode,
        t.ColorHex AS color,
        e.EmployeeId AS employeeId,
        e.DisplayName AS employeeName,
-       s.Note AS note
-FROM dbo.EmployeeSchedules s
-JOIN dbo.Employees e ON e.EmployeeId = s.EmployeeId
-JOIN dbo.AvailabilityTypes t ON t.TypeId = s.TypeId
-WHERE s.EmployeeId = @employeeId
-  AND s.ScheduleDate >= @start
-  AND s.ScheduleDate < @end
+       b.Note AS note
+FROM dbo.EmployeeScheduleBlocks b
+JOIN dbo.Employees e ON e.EmployeeId = b.EmployeeId
+JOIN dbo.AvailabilityTypes t ON t.TypeId = b.TypeId
+WHERE b.EmployeeId = @employeeId
+  AND b.ScheduleDate >= @start
+  AND b.ScheduleDate < @end
 
 ORDER BY start";
 
@@ -611,18 +662,32 @@ WHERE r.Status = 'Approved'
 
 UNION ALL
 
-SELECT t.Code AS TypeCode,
-       t.Label AS TypeLabel,
-       t.ColorHex AS ColorHex,
-       e.EmployeeId,
-       e.DisplayName,
-       e.DepartmentId,
-       CAST(@tomorrow AS datetime2) AS EndDateTime
-FROM dbo.EmployeeSchedules s
-JOIN dbo.Employees e ON e.EmployeeId = s.EmployeeId
-JOIN dbo.AvailabilityTypes t ON t.TypeId = s.TypeId
-WHERE s.EmployeeId = @employeeId
-  AND s.ScheduleDate = @today
+SELECT x.TypeCode,
+       x.TypeLabel,
+       x.ColorHex,
+       x.EmployeeId,
+       x.DisplayName,
+       x.DepartmentId,
+       x.EndDateTime
+FROM (
+    SELECT t.Code AS TypeCode,
+           t.Label AS TypeLabel,
+           t.ColorHex AS ColorHex,
+           e.EmployeeId,
+           e.DisplayName,
+           e.DepartmentId,
+           CAST(@tomorrow AS datetime2) AS EndDateTime,
+           ROW_NUMBER() OVER (
+               PARTITION BY b.EmployeeId
+               ORDER BY CASE WHEN b.StartTime IS NULL THEN 0 ELSE 1 END, b.StartTime, b.EndTime, b.ScheduleBlockId
+           ) AS rn
+    FROM dbo.EmployeeScheduleBlocks b
+    JOIN dbo.Employees e ON e.EmployeeId = b.EmployeeId
+    JOIN dbo.AvailabilityTypes t ON t.TypeId = b.TypeId
+    WHERE b.EmployeeId = @employeeId
+      AND b.ScheduleDate = @today
+) x
+WHERE x.rn = 1
   AND NOT EXISTS (
       SELECT 1 FROM dbo.AvailabilityRequests r2
       WHERE r2.EmployeeId = @employeeId
@@ -684,17 +749,28 @@ WHERE r.Status = 'Approved'
   AND r.EndDateTime > @weekStart",
             new { employeeId, weekStart, weekEnd })).ToList();
 
-        // Get schedules
+        // Get schedule blocks
         var schedules = (await cn.QueryAsync<dynamic>(@"
-SELECT s.ScheduleDate, t.Code AS TypeCode, t.Label AS TypeLabel, t.ColorHex
-FROM dbo.EmployeeSchedules s
-JOIN dbo.AvailabilityTypes t ON t.TypeId = s.TypeId
-WHERE s.EmployeeId = @employeeId
-  AND s.ScheduleDate >= @weekStart
-  AND s.ScheduleDate < @weekEnd",
+SELECT b.ScheduleDate,
+       b.StartTime,
+       b.EndTime,
+       b.Note,
+       b.CustomerName,
+       b.OutActivity,
+       t.TypeId,
+       t.Code AS TypeCode,
+       t.Label AS TypeLabel,
+       t.ColorHex
+FROM dbo.EmployeeScheduleBlocks b
+JOIN dbo.AvailabilityTypes t ON t.TypeId = b.TypeId
+WHERE b.EmployeeId = @employeeId
+  AND b.ScheduleDate >= @weekStart
+  AND b.ScheduleDate < @weekEnd",
             new { employeeId, weekStart, weekEnd })).ToList();
 
-        var schedByDay = schedules.ToDictionary(s => ((DateTime)s.ScheduleDate).Date);
+        var schedByDay = schedules
+            .GroupBy(s => ((DateTime)s.ScheduleDate).Date)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => (TimeSpan?)x.StartTime ?? TimeSpan.Zero).ToList());
 
         var row = new WeeklyGridRow
         {
@@ -725,11 +801,37 @@ WHERE s.EmployeeId = @employeeId
             }
 
             // Check schedules
-            if (schedByDay.TryGetValue(day, out var sd))
+            if (schedByDay.TryGetValue(day, out var dayBlocks))
             {
-                row.Days[i].TypeCode = sd.TypeCode;
-                row.Days[i].TypeLabel = sd.TypeLabel;
-                row.Days[i].ColorHex = sd.ColorHex;
+                var blocks = dayBlocks.Select(b => new WeeklyGridBlock
+                {
+                    TypeId = (int)b.TypeId,
+                    TypeCode = (string)b.TypeCode,
+                    TypeLabel = (string)b.TypeLabel,
+                    ColorHex = (string?)b.ColorHex,
+                    StartTime = (TimeSpan?)b.StartTime,
+                    EndTime = (TimeSpan?)b.EndTime,
+                    CustomerName = (string?)b.CustomerName,
+                    OutActivity = (string?)b.OutActivity,
+                    Note = (string?)b.Note
+                }).ToList();
+
+                row.Days[i].Blocks = blocks;
+
+                var distinctCodes = blocks.Select(x => x.TypeCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (distinctCodes.Count == 1)
+                {
+                    var first = blocks[0];
+                    row.Days[i].TypeCode = first.TypeCode;
+                    row.Days[i].TypeLabel = first.TypeLabel;
+                    row.Days[i].ColorHex = first.ColorHex;
+                }
+                else
+                {
+                    row.Days[i].TypeCode = "MIX";
+                    row.Days[i].TypeLabel = "Multiple";
+                    row.Days[i].ColorHex = "#212529";
+                }
             }
         }
 
@@ -756,11 +858,30 @@ public sealed class WeeklyGridRow
     public WeeklyGridCell[] Days { get; set; } = new WeeklyGridCell[7];
 }
 
+public sealed class WeeklyGridBlock
+{
+    public int TypeId { get; set; }
+    public string TypeCode { get; set; } = "";
+    public string TypeLabel { get; set; } = "";
+    public string? ColorHex { get; set; }
+    public TimeSpan? StartTime { get; set; }
+    public TimeSpan? EndTime { get; set; }
+    public string? CustomerName { get; set; }
+    public string? OutActivity { get; set; }
+    public string? Note { get; set; }
+}
+
 public sealed class WeeklyGridCell
 {
     public DateTime Date { get; set; }
     public string? TypeCode { get; set; }
     public string? TypeLabel { get; set; }
     public string? ColorHex { get; set; }
-    public bool HasEvent => TypeCode != null;
+
+    /// <summary>
+    /// Optional schedule blocks for that day (only when the day is filled by schedule blocks, not by requests).
+    /// </summary>
+    public List<WeeklyGridBlock>? Blocks { get; set; }
+
+    public bool HasEvent => (Blocks != null && Blocks.Count > 0) || TypeCode != null;
 }

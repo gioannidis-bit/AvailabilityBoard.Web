@@ -110,8 +110,9 @@ public class DepartmentsModel : PageModel
         return RedirectToPage();
     }
 
-    // NEW POST handler: Toggle Active (θα το χρησιμοποιήσει το UI)
-    public async Task<IActionResult> OnPostToggleActive(int departmentId, bool isActive)
+    // NEW POST handler: Toggle Active
+    // Flip server-side για να μη βασιζόμαστε σε bool parsing από hidden inputs.
+    public async Task<IActionResult> OnPostToggleActive(int departmentId)
     {
         if (departmentId <= 0)
         {
@@ -119,8 +120,18 @@ public class DepartmentsModel : PageModel
             return RedirectToPage();
         }
 
-        await _db.Departments.SetActive(departmentId, isActive);
-        Message = "Updated department status.";
+        var dept = await _db.Departments.GetById(departmentId);
+        if (dept is null)
+        {
+            Message = $"Department not found (Id={departmentId}).";
+            return RedirectToPage();
+        }
+
+        var newState = !dept.IsActive;
+        var rows = await _db.Departments.SetActive(departmentId, newState);
+        Message = rows > 0
+            ? $"Updated department status: {(newState ? "Active" : "Inactive")}."
+            : "No rows updated. Check DepartmentId/DB.";
         return RedirectToPage();
     }
 }

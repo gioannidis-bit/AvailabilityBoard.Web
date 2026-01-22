@@ -227,6 +227,8 @@
         width: 40px;
         height: 36px;
         border-radius: 6px;
+        position: relative;
+        overflow: hidden;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -245,6 +247,28 @@
             background: #e9ecef;
             color: transparent
         }
+
+    /* Multi-block rendering inside a single day cell */
+    .cell-blocks {
+        position: absolute;
+        inset: 3px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        z-index: 1;
+    }
+
+    .cell-block {
+        flex: 1;
+        border-radius: 4px;
+        opacity: .85;
+    }
+
+    .cell-code {
+        position: relative;
+        z-index: 2;
+        text-shadow: 0 1px 2px rgba(0,0,0,.35);
+    }
 
     /* View Toggle */
     .view-toggle {
@@ -464,15 +488,16 @@
             </div>
             <div class="modal-body">
                 <div id="schedError" class="alert alert-danger d-none"></div>
-                <div class="mb-3">
-                    <label class="form-label">Τύπος</label>
-                    <select id="schedType" class="form-select"></select>
+
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <div class="text-muted small">Πολλαπλά events ανά ημέρα (π.χ. 08:00-10:00 πελάτη, 10:00-17:00 γραφείο, 17:00-20:00 τηλεργασία)</div>
+                    <button type="button" id="schedAddBlock" class="btn btn-sm btn-outline-primary">+ Add event</button>
                 </div>
-                <div class="mb-2">
-                    <label class="form-label">Σημείωση</label>
-                    <textarea id="schedNote" class="form-control" rows="3" placeholder="π.χ. 09:00–17:00"></textarea>
-                </div>
+
+                <div id="schedBlocks" class="vstack gap-2"></div>
+
             </div>
+
             <div class="modal-footer d-flex justify-content-between">
                 <button type="button" id="schedDelete" class="btn btn-outline-danger">Delete</button>
                 <div class="d-flex gap-2">
@@ -493,6 +518,25 @@
           const currentEmployeeId = @Model.CurrentEmployeeId;
 
           const tooltip = document.getElementById('tooltip');
+
+                  function escapeHtml(s){
+          return String(s ?? '')
+            .replace(/&/g,'&amp;')
+            .replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;')
+            .replace(/'/g,'&#39;');
+        }
+
+        // για data-details σε attribute, κρατά και νέα γραμμή
+        function escapeAttrMultiline(s){
+          return String(s ?? '')
+            .replace(/&/g,'&amp;')
+            .replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;')
+            .replace(/\r?\n/g,'&#10;');
+        }
 
           let currentWeekStart = getMonday(new Date());
           let typesData = [];
@@ -515,7 +559,6 @@
           async function loadTypes() {
             typesData = await fetch('/api/types').then(r => r.json());
             if (canManage) renderTypeFilters();
-            fillSchedTypeOptions();
           }
 
           async function loadDepartments() {
@@ -693,52 +736,64 @@
             `).join('');
           }
 
-          function renderGrid(data) {
-            if (data?.dayNames?.length === 7) {
-              data.dayNames.forEach((name, i) => {
-                const th = document.getElementById(`day-${i}`);
-                if (th) th.textContent = name;
-              });
-            }
-
-            const tbody = document.getElementById('grid-body');
-            if (!data?.rows?.length) {
-              tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-4">Δεν υπάρχουν δεδομένα</td></tr>';
-              return;
-            }
-
-            tbody.innerHTML = data.rows.map(row => `
-              <tr>
-                <td class="emp-name" title="${row.displayName}">${row.displayName}</td>
-                ${row.days.map((day, i) => {
-                  const dateStr = data.days[i];
-                  if (day && day.typeCode) {
-                    return `<td>
-                      <div class="grid-cell"
-                           style="background:${day.colorHex}"
-                           data-employeeid="${row.employeeId}"
-                           data-name="${row.displayName}"
-                           data-type="${day.typeLabel}"
-                           data-date="${dateStr}"
-                           onmouseenter="showGridTooltip(event, this)"
-                           onmouseleave="hideTooltip()">
-                        ${day.typeCode.substring(0,3)}
-                      </div>
-                    </td>`;
-                  }
-                  return `<td>
-                    <div class="grid-cell empty"
-                         data-employeeid="${row.employeeId}"
-                         data-name="${row.displayName}"
-                         data-type=""
-                         data-date="${dateStr}"
-                         onmouseenter="showGridTooltip(event, this)"
-                         onmouseleave="hideTooltip()">·</div>
-                  </td>`;
-                }).join('')}
-              </tr>
-            `).join('');
+        function renderGrid(data) {
+          if (data?.dayNames?.length === 7) {
+            data.dayNames.forEach((name, i) => {
+              const th = document.getElementById(`day-${i}`);
+              if (th) th.textContent = name;
+            });
           }
+
+          const tbody = document.getElementById('grid-body');
+          if (!data?.rows?.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-4">Δεν υπάρχουν δεδομένα</td></tr>';
+            return;
+          }
+
+          tbody.innerHTML = data.rows.map(row => `
+            <tr>
+              <td class="emp-name" title="${escapeHtml(row.displayName)}">${row.displayName}</td>
+              ${row.days.map((day, i) => {
+                const dateStr = data.days[i];
+                if (day && day.typeCode) {
+                  const blocks = Array.isArray(day.blocks) ? day.blocks : null;
+                  const hasBlocks = blocks && blocks.length;
+                  const stripes = hasBlocks
+                    ? `<div class="cell-blocks">${blocks.slice(0,4).map(b =>
+                        `<div class="cell-block" style="background:${escapeHtml(b.colorHex || '#999')}"></div>`
+                      ).join('')}</div>`
+                    : '';
+                  const bgStyle = hasBlocks ? '' : `background:${day.colorHex || '#999'}`;
+
+                  return `<td>
+                    <div class="grid-cell"
+                         style="${bgStyle}"
+                         data-employeeid="${row.employeeId}"
+                         data-name="${escapeHtml(row.displayName)}"
+                         data-type="${escapeHtml(day.typeLabel)}"
+                         data-date="${dateStr}"
+                         data-details="${escapeAttrMultiline(day.details || '')}"
+                         onmouseenter="showGridTooltip(event, this)"
+                         onmouseleave="hideTooltip()">
+                      ${stripes}
+                      <div class="cell-code">${escapeHtml(day.typeCode.substring(0,3))}</div>
+                    </div>
+                  </td>`;
+                }
+                return `<td>
+                  <div class="grid-cell empty"
+                       data-employeeid="${row.employeeId}"
+                       data-name="${escapeHtml(row.displayName)}"
+                       data-type=""
+                       data-date="${dateStr}"
+                       data-details=""
+                       onmouseenter="showGridTooltip(event, this)"
+                       onmouseleave="hideTooltip()">·</div>
+                </td>`;
+              }).join('')}
+            </tr>
+          `).join('');
+        }
 
           function updateWeekLabel(weekStart) {
             const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
@@ -775,11 +830,20 @@
             tooltip.innerHTML = `<strong>${el.dataset.name}</strong>${el.dataset.returns ? '<br>'+el.dataset.returns : ''}`;
             positionTooltip(e);
           };
-          window.showGridTooltip = function(e, el) {
-            const d = new Date(el.dataset.date).toLocaleDateString('el-GR', { weekday:'long', day:'numeric', month:'long' });
-            tooltip.innerHTML = `<strong>${el.dataset.name}</strong><br>${el.dataset.type || '—'}<br><small>${d}</small>`;
-            positionTooltip(e);
-          };
+        window.showGridTooltip = function(e, el) {
+          const d = new Date(el.dataset.date).toLocaleDateString('el-GR', { weekday:'long', day:'numeric', month:'long' });
+          const name = escapeHtml(el.dataset.name || '');
+          const type = escapeHtml(el.dataset.type || '—');
+          const details = el.dataset.details ? String(el.dataset.details) : '';
+
+          let html = `<strong>${name}</strong><br>${type}<br><small>${escapeHtml(d)}</small>`;
+          if (details && details.trim().length) {
+            html += `<div style="margin-top:.35rem;font-size:.75rem;opacity:.9;white-space:pre-line;">${escapeHtml(details)}</div>`;
+          }
+
+          tooltip.innerHTML = html;
+          positionTooltip(e);
+        };
           function positionTooltip(e){
             tooltip.classList.remove('d-none');
             const rect = tooltip.getBoundingClientRect();
@@ -827,14 +891,14 @@
             await loadWeeklyGrid(currentWeekStart);
           });
 
-          // ====== SCHEDULING MODAL ======
+          // ====== SCHEDULING MODAL (multi-block) ======
           const scheduleModalEl = document.getElementById('scheduleModal');
           const scheduleModal = (scheduleModalEl && window.bootstrap) ? new bootstrap.Modal(scheduleModalEl) : null;
 
           const schedEmployeeEl = document.getElementById('schedEmployee');
           const schedDateEl = document.getElementById('schedDate');
-          const schedTypeEl = document.getElementById('schedType');
-          const schedNoteEl = document.getElementById('schedNote');
+          const schedBlocksEl = document.getElementById('schedBlocks');
+          const schedAddBlockBtn = document.getElementById('schedAddBlock');
           const schedSaveBtn = document.getElementById('schedSave');
           const schedDeleteBtn = document.getElementById('schedDelete');
           const schedErrorEl = document.getElementById('schedError');
@@ -849,10 +913,101 @@
             }
           }
 
-          function fillSchedTypeOptions(selectedId){
-            if (!schedTypeEl) return;
-            schedTypeEl.innerHTML = typesData.map(t => `<option value="${t.typeId}">${t.label} (${t.code})</option>`).join('');
-            if (selectedId) schedTypeEl.value = String(selectedId);
+          function normTime(v){
+            if (!v) return '';
+            const s = String(v);
+            return s.length >= 5 ? s.substring(0,5) : s;
+          }
+
+          function typeOptions(selectedId){
+            const sid = parseInt(selectedId || '0', 10);
+            return (typesData || []).map(t => {
+              const sel = (t.typeId === sid) ? 'selected' : '';
+              return `<option value="${t.typeId}" ${sel}>${escapeHtml(t.label)} (${escapeHtml(t.code)})</option>`;
+            }).join('');
+          }
+
+          function blockRowHtml(b){
+            const start = normTime(b?.startTime ?? b?.start ?? b?.StartTime);
+            const end = normTime(b?.endTime ?? b?.end ?? b?.EndTime);
+            const typeId = b?.typeId ?? b?.TypeId ?? '';
+            const customer = b?.customerName ?? b?.CustomerName ?? '';
+            const outAct = b?.outActivity ?? b?.OutActivity ?? '';
+            const note = b?.note ?? b?.Note ?? '';
+
+            return `
+              <div class="card border-0 shadow-sm p-2 sched-block">
+                <div class="row g-2 align-items-end">
+                  <div class="col-4">
+                    <label class="form-label small mb-1">Start</label>
+                    <input type="time" class="form-control form-control-sm sched-start" step="60" value="${escapeHtml(start)}">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label small mb-1">End</label>
+                    <input type="time" class="form-control form-control-sm sched-end" step="60" value="${escapeHtml(end)}">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label small mb-1">Type</label>
+                    <select class="form-select form-select-sm sched-type">
+                      ${typeOptions(typeId)}
+                    </select>
+                  </div>
+                </div>
+                <div class="row g-2 mt-2">
+                  <div class="col-6">
+                    <input type="text" class="form-control form-control-sm sched-customer" placeholder="Customer" value="${escapeHtml(customer)}">
+                  </div>
+                  <div class="col-6">
+                    <input type="text" class="form-control form-control-sm sched-activity" placeholder="Reason / activity" value="${escapeHtml(outAct)}">
+                  </div>
+                </div>
+                <div class="mt-2">
+                  <textarea class="form-control form-control-sm sched-note" rows="2" placeholder="Notes">${escapeHtml(note)}</textarea>
+                </div>
+                <div class="d-flex justify-content-end mt-2">
+                  <button type="button" class="btn btn-sm btn-outline-danger sched-remove">Remove</button>
+                </div>
+              </div>`;
+          }
+
+          function renderBlocks(blocks){
+            const list = (blocks && blocks.length) ? blocks : [{}];
+            schedBlocksEl.innerHTML = list.map(blockRowHtml).join('');
+          }
+
+          function readBlocks(){
+            const rows = Array.from(schedBlocksEl.querySelectorAll('.sched-block'));
+            const blocks = [];
+
+            for (const r of rows){
+              const start = (r.querySelector('.sched-start')?.value || '').trim();
+              const end = (r.querySelector('.sched-end')?.value || '').trim();
+              const typeId = parseInt(r.querySelector('.sched-type')?.value || '0', 10);
+              const customerName = (r.querySelector('.sched-customer')?.value || '').trim();
+              const outActivity = (r.querySelector('.sched-activity')?.value || '').trim();
+              const note = (r.querySelector('.sched-note')?.value || '').trim();
+
+              if (!typeId) continue;
+
+              // validate time if provided
+              if ((start && !end) || (!start && end)) {
+                throw new Error('Βάλε και start και end (ή άφησέ τα και τα δύο κενά).');
+              }
+              if (start && end && start >= end) {
+                throw new Error('Το End πρέπει να είναι μετά το Start.');
+              }
+
+              blocks.push({
+                typeId,
+                startTime: start || null,
+                endTime: end || null,
+                customerName: customerName || null,
+                outActivity: outActivity || null,
+                note: note || null
+              });
+            }
+
+            return blocks;
           }
 
           async function openScheduleModal(cell){
@@ -869,9 +1024,7 @@
             schedEmployeeEl.textContent = employeeName || `EmployeeId=${employeeId}`;
             schedDateEl.textContent = new Date(dateStr).toLocaleDateString('el-GR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
 
-            fillSchedTypeOptions(typesData[0]?.typeId);
-            schedNoteEl.value = '';
-
+            renderBlocks([{}]);
             schedDeleteBtn.disabled = true;
             schedSaveBtn.disabled = true;
 
@@ -879,20 +1032,12 @@
 
             try{
               const resp = await fetch(`/api/schedules/day?employeeId=${employeeId}&date=${encodeURIComponent(dateStr)}`);
-              if (resp.status === 403){
-                setSchedError('Δεν έχεις δικαίωμα να αλλάξεις πρόγραμμα για αυτόν τον υπάλληλο.');
-                return;
-              }
-              if (!resp.ok){
-                setSchedError(`Σφάλμα: ${resp.status}`);
-                return;
-              }
+              if (resp.status === 403){ setSchedError('Δεν έχεις δικαίωμα να αλλάξεις πρόγραμμα για αυτόν τον υπάλληλο.'); return; }
+              if (!resp.ok){ setSchedError(`Σφάλμα: ${resp.status}`); return; }
+
               const data = await resp.json();
-              if (data.exists){
-                fillSchedTypeOptions(data.typeId);
-                schedNoteEl.value = data.note || '';
-                schedDeleteBtn.disabled = false;
-              }
+              renderBlocks(data.blocks || []);
+              schedDeleteBtn.disabled = !(data.exists);
               schedSaveBtn.disabled = false;
             } catch {
               setSchedError('Αποτυχία επικοινωνίας με τον server.');
@@ -903,19 +1048,31 @@
             if (!schedCtx) return;
             setSchedError('');
 
+            let blocks;
+            try{
+              blocks = readBlocks();
+              if (!blocks.length) throw new Error('Πρόσθεσε τουλάχιστον 1 event.');
+            } catch (err){
+              setSchedError(err?.message || 'Λάθος δεδομένα.');
+              return;
+            }
+
             const payload = {
               employeeId: schedCtx.employeeId,
               date: schedCtx.dateStr,
-              typeId: parseInt(schedTypeEl.value || '0', 10),
-              note: schedNoteEl.value || null
+              blocks
             };
 
             try{
-              const resp = await fetch('/api/schedules/upsert', {
+              const resp = await fetch('/api/schedules/replace-day', {
                 method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
               });
               if (resp.status === 403){ setSchedError('Δεν έχεις δικαίωμα.'); return; }
-              if (!resp.ok){ setSchedError(`Σφάλμα: ${resp.status}`); return; }
+              if (!resp.ok){
+                const txt = await resp.text();
+                setSchedError(txt || `Σφάλμα: ${resp.status}`);
+                return;
+              }
               scheduleModal.hide();
               await refreshAll();
             } catch {
@@ -930,7 +1087,7 @@
             const payload = { employeeId: schedCtx.employeeId, date: schedCtx.dateStr };
 
             try{
-              const resp = await fetch('/api/schedules/delete', {
+              const resp = await fetch('/api/schedules/delete-day', {
                 method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
               });
               if (resp.status === 403){ setSchedError('Δεν έχεις δικαίωμα.'); return; }
@@ -941,6 +1098,17 @@
               setSchedError('Αποτυχία διαγραφής (network).');
             }
           }
+
+          schedAddBlockBtn.addEventListener('click', () => {
+            schedBlocksEl.insertAdjacentHTML('beforeend', blockRowHtml({}));
+          });
+
+          schedBlocksEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('.sched-remove');
+            if (!btn) return;
+            const card = btn.closest('.sched-block');
+            if (card) card.remove();
+          });
 
           schedSaveBtn.addEventListener('click', saveSchedule);
           schedDeleteBtn.addEventListener('click', deleteSchedule);

@@ -31,9 +31,37 @@ public class DashboardApiController : ControllerBase
         return (canManage, emp.IsAdmin);
     }
 
-    /// <summary>
-    /// Departments list
-    /// </summary>
+    // details για tooltip: δουλεύει τόσο για "single" όσο και για πολλαπλά blocks
+    private static string? BuildCellDetails(WeeklyGridCell c)
+    {
+        if (c.Blocks == null || c.Blocks.Count == 0) return null;
+
+        string Fmt(TimeSpan? t) => t.HasValue ? t.Value.ToString(@"hh\:mm") : "";
+
+        var lines = new List<string>();
+
+        foreach (var b in c.Blocks)
+        {
+            var time = (b.StartTime.HasValue || b.EndTime.HasValue)
+                ? $"{Fmt(b.StartTime)}-{Fmt(b.EndTime)}".Trim('-')
+                : "All-day";
+
+            var head = $"{time} {b.TypeLabel}".Trim();
+
+            var extras = new List<string>();
+            if (!string.IsNullOrWhiteSpace(b.CustomerName)) extras.Add($"Customer: {b.CustomerName}");
+            if (!string.IsNullOrWhiteSpace(b.OutActivity)) extras.Add($"Reason: {b.OutActivity}");
+            if (!string.IsNullOrWhiteSpace(b.Note)) extras.Add(b.Note!);
+
+            if (extras.Count == 0)
+                lines.Add(head);
+            else
+                lines.Add(head + " • " + string.Join(" • ", extras));
+        }
+
+        return lines.Count == 0 ? null : string.Join("\n", lines);
+    }
+
     [HttpGet("departments")]
     public async Task<IActionResult> GetDepartments()
     {
@@ -41,9 +69,6 @@ public class DashboardApiController : ControllerBase
         return Ok(depts.Select(d => new { d.DepartmentId, d.Name, d.ColorHex }));
     }
 
-    /// <summary>
-    /// Availability types με χρώματα
-    /// </summary>
     [HttpGet("types")]
     public async Task<IActionResult> GetTypes()
     {
@@ -51,9 +76,6 @@ public class DashboardApiController : ControllerBase
         return Ok(types.Select(t => new { t.TypeId, t.Code, t.Label, t.ColorHex }));
     }
 
-    /// <summary>
-    /// Calendar events - Regular users see only their own
-    /// </summary>
     [HttpGet("events")]
     public async Task<IActionResult> GetEvents(
         [FromQuery] DateTime start,
@@ -68,14 +90,13 @@ public class DashboardApiController : ControllerBase
 
         var (canManage, isAdmin) = await GetUserPermissions(empId, emp);
 
-        // Regular users see only their own events
         if (!canManage)
         {
             var myEvents = await _db.Requests.GetApprovedEventsForEmployee(start, end, empId);
             return Ok(myEvents.Select(e => new
             {
                 e.id,
-                title = $"{e.employeeName} — {e.typeCode}",
+                title = $"{e.employeeName} - {e.typeCode}",
                 e.start,
                 e.end,
                 e.typeCode,
@@ -85,7 +106,6 @@ public class DashboardApiController : ControllerBase
             }));
         }
 
-        // Managers see filtered data
         List<int> visibleDepts;
         if (isAdmin)
         {
@@ -113,7 +133,7 @@ public class DashboardApiController : ControllerBase
         return Ok(events.Select(e => new
         {
             e.id,
-            title = $"{e.employeeName} — {e.typeCode}",
+            title = $"{e.employeeName} - {e.typeCode}",
             e.start,
             e.end,
             e.typeCode,
@@ -123,9 +143,6 @@ public class DashboardApiController : ControllerBase
         }));
     }
 
-    /// <summary>
-    /// Today's snapshot - Regular users see only their own
-    /// </summary>
     [HttpGet("snapshot")]
     public async Task<IActionResult> GetSnapshot(
         [FromQuery] string? deptIds = null,
@@ -137,14 +154,12 @@ public class DashboardApiController : ControllerBase
 
         var (canManage, isAdmin) = await GetUserPermissions(empId, emp);
 
-        // Regular users see only their own snapshot
         if (!canManage)
         {
             var mySnapshot = await _db.Requests.GetTodaySnapshotForEmployee(empId);
             return Ok(mySnapshot);
         }
 
-        // Managers see filtered data
         List<int> visibleDepts;
         if (isAdmin)
         {
@@ -169,9 +184,7 @@ public class DashboardApiController : ControllerBase
         return Ok(snapshot);
     }
 
-    /// <summary>
-    /// Weekly grid - Regular users see only themselves
-    /// </summary>
+    // ✅ UPDATED: weekly-grid επιστρέφει details στα days
     [HttpGet("weekly-grid")]
     public async Task<IActionResult> GetWeeklyGrid(
         [FromQuery] DateTime? weekStart = null,
@@ -185,7 +198,6 @@ public class DashboardApiController : ControllerBase
         var ws = weekStart ?? StartOfWeek(DateTime.Today);
         var (canManage, isAdmin) = await GetUserPermissions(empId, emp);
 
-        // Regular users see only themselves
         if (!canManage)
         {
             var grid = await _db.Requests.GetWeeklyGridForEmployee(ws, empId);
@@ -197,13 +209,35 @@ public class DashboardApiController : ControllerBase
                 dayNames = Enumerable.Range(0, 7).Select(i => ws.AddDays(i).ToString("ddd d/M")).ToArray(),
                 rows = grid.Select(r => new
                 {
-                    r.EmployeeId, r.DisplayName, r.Initials, r.DepartmentId,
-                    days = r.Days.Select(d => d.HasEvent ? new { d.TypeCode, d.TypeLabel, d.ColorHex } : null)
+                    r.EmployeeId,
+                    r.DisplayName,
+                    r.Initials,
+                    r.DepartmentId,
+                    days = r.Days.Select(d => d.HasEvent
+                        ? new
+                        {
+                            d.TypeCode,
+                            d.TypeLabel,
+                            d.ColorHex,
+                            blocks = d.Blocks?.Select(b => new
+                            {
+                                b.TypeId,
+                                b.TypeCode,
+                                b.TypeLabel,
+                                b.ColorHex,
+                                start = b.StartTime?.ToString(@"hh\:mm"),
+                                end = b.EndTime?.ToString(@"hh\:mm"),
+                                b.CustomerName,
+                                b.OutActivity,
+                                b.Note
+                            }),
+                            details = BuildCellDetails(d)
+                        }
+                        : null)
                 })
             });
         }
 
-        // Managers see filtered data
         List<int> visibleDepts;
         if (isAdmin)
         {
@@ -234,28 +268,42 @@ public class DashboardApiController : ControllerBase
             dayNames = Enumerable.Range(0, 7).Select(i => ws.AddDays(i).ToString("ddd d/M")).ToArray(),
             rows = gridData.Select(r => new
             {
-                r.EmployeeId, r.DisplayName, r.Initials, r.DepartmentId,
-                days = r.Days.Select(d => d.HasEvent ? new { d.TypeCode, d.TypeLabel, d.ColorHex } : null)
+                r.EmployeeId,
+                r.DisplayName,
+                r.Initials,
+                r.DepartmentId,
+                days = r.Days.Select(d => d.HasEvent
+                    ? new
+                    {
+                        d.TypeCode,
+                        d.TypeLabel,
+                        d.ColorHex,
+                        blocks = d.Blocks?.Select(b => new
+                        {
+                            b.TypeId,
+                            b.TypeCode,
+                            b.TypeLabel,
+                            b.ColorHex,
+                            start = b.StartTime?.ToString(@"hh\:mm"),
+                            end = b.EndTime?.ToString(@"hh\:mm"),
+                            b.CustomerName,
+                            b.OutActivity,
+                            b.Note
+                        }),
+                        details = BuildCellDetails(d)
+                    }
+                    : null)
             })
         });
     }
 
-    /// <summary>
-    /// Employee search (για typeahead)
-    /// </summary>
     [HttpGet("employees/search")]
     public async Task<IActionResult> SearchEmployees([FromQuery] string q)
     {
         var results = await _db.Employees.Search(q ?? "", 20);
-        return Ok(results.Select(e => new
-        {
-            e.EmployeeId, e.DisplayName, e.SamAccountName, e.Email, e.DepartmentId
-        }));
+        return Ok(results.Select(e => new { e.EmployeeId, e.DisplayName, e.SamAccountName, e.Email, e.DepartmentId }));
     }
 
-    /// <summary>
-    /// Unread notification count
-    /// </summary>
     [HttpGet("notifications/count")]
     public async Task<IActionResult> GetNotificationCount()
     {

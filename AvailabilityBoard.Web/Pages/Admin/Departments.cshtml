@@ -1,4 +1,4 @@
-﻿@page
+﻿@page 
 @model AvailabilityBoard.Web.Pages.Admin.DepartmentsModel
 @{
     ViewData["Title"] = "Departments";
@@ -107,7 +107,6 @@
                             <td>
                                 <form method="post" asp-page-handler="ToggleActive" class="d-inline">
                                     <input type="hidden" name="departmentId" value="@d.DepartmentId" />
-                                    <input type="hidden" name="isActive" value="@(!d.IsActive)" />
                                     @if (d.IsActive)
                                     {
                                         <button type="submit" class="btn btn-sm btn-outline-success">Active</button>
